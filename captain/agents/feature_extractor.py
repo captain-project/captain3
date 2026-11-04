@@ -14,11 +14,13 @@ from typing import TYPE_CHECKING
 import numpy as np
 import torch
 
+from captain.agents.rewards import protected_fractions, tail_threat_weights, worst_species
 from captain.utils import grid_utils
 from captain.utils.grid_utils import scipy_sparse_to_torch
 
 if TYPE_CHECKING:
     from captain.environment.bioenv import BioEnv
+    from captain.utils.connectivity import PAConnectivity
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,29 @@ class FeatureExtractor:
     # Feature constants
     CLIP_RANGE: float = 5.0
     DEFAULT_TIME_RESCALE: float = 10.0
+    DEFAULT_FEATURE_SET: tuple[str, ...] = (
+        "time",
+        "disturbance",
+        "disturbance_conv",
+        "species_richness",
+        "total_population",
+        "current_ext_risk",
+        "cost",
+        "protection_matrix",
+        "protection_matrix_conv",
+    )
+    # Optional dynamic features (add them to feature_set):
+    #   "edge_exposure": env.edge_exposure(), the edge exposure each cell has or would
+    #       have if protected now (reduces K by sensitivity * edge_factor * exposure)
+    #   "buffer_value": env.edge_buffer(cell_values), the value gained by protected
+    #       neighbours whose edge exposure drops if the cell is protected
+    #   "pa_linking": connectivity.linking_value(protection), importance of the cell for
+    #       linking protected-area units that are not yet connected (PAConnectivity)
+    #   "worst_species_value": share of the currently worst-served species' populations
+    #       (worst_fraction, as in CalcRewardWorstSpecies) held by each cell, scaled to [0, 1]
+    OPTIONAL_FEATURES: tuple[str, ...] = (
+        "edge_exposure", "buffer_value", "pa_linking", "worst_species_value"
+    )
 
     def __init__(
             self,
@@ -56,6 +81,11 @@ class FeatureExtractor:
             keys_to_reset: list[str] | None = None,
             time_rescale: float = DEFAULT_TIME_RESCALE,
             device: torch.device | str | None = None,
+            cell_values: np.ndarray | torch.Tensor | None = None,
+            connectivity: PAConnectivity | None = None,
+            worst_fraction: float = 0.1,
+            worst_target: float | None = None,
+            worst_threat_weights: np.ndarray | torch.Tensor | list | None = None,
     ):
         """Initialize feature extractor.
 
@@ -66,6 +96,15 @@ class FeatureExtractor:
             keys_to_reset: Features that should not be z-score normalized.
             time_rescale: Divisor for time normalization.
             device: PyTorch device (default: same as env).
+            cell_values: Per-cell value of the full carrying capacity, shape
+                (n_cells,), required by the "buffer_value" feature.
+            connectivity: PAConnectivity, required by the "pa_linking" feature.
+            worst_fraction: Share of species counted as worst-served by the
+                "worst_species_value" feature (match CalcRewardWorstSpecies).
+            worst_target: Protected fraction at which a species counts as fully
+                protected for that feature (match CalcRewardWorstSpecies).
+            worst_threat_weights: IUCN weights of the worst-served species in that
+                feature (match CalcRewardWorstSpecies); None = unweighted.
         """
         self.device = torch.device(device) if device else env.device
 
@@ -104,6 +143,23 @@ class FeatureExtractor:
         else:
             self._static_features = None
 
+        if "buffer_value" in self._feature_set and cell_values is None:
+            raise ValueError("The 'buffer_value' feature requires cell_values")
+        if "pa_linking" in self._feature_set and connectivity is None:
+            raise ValueError("The 'pa_linking' feature requires connectivity")
+        self._connectivity = connectivity
+        self._worst_fraction = worst_fraction
+        self._worst_target = worst_target
+        self._worst_threat_weights = (
+            None if worst_threat_weights is None
+            else torch.as_tensor(worst_threat_weights, dtype=torch.float32)
+        )
+        self._cell_values = (
+            None
+            if cell_values is None
+            else torch.as_tensor(cell_values, dtype=torch.float32).to(self.device)
+        )
+
         # Feature map for quick lookup
         self.feature_map = {name: i for i, name in enumerate(self._feature_names)}
         self._n_features = len(self._feature_names)
@@ -131,6 +187,10 @@ class FeatureExtractor:
                 "disturbance_conv",
                 "protection_matrix",
                 "protection_matrix_conv",
+                "edge_exposure",
+                "buffer_value",
+                "pa_linking",
+                "worst_species_value",
             ]
         else:
             self.keys_to_reset = list(keys_to_reset)
@@ -217,17 +277,7 @@ class FeatureExtractor:
 
     @property
     def default_feature_set(self):
-        return [
-            "time",
-            "disturbance",
-            "disturbance_conv",
-            "species_richness",
-            "total_population",
-            "current_ext_risk",
-            "cost",
-            "protection_matrix",
-            "protection_matrix_conv",
-        ]
+        return list(self.DEFAULT_FEATURE_SET)
 
     def extract_features(self, env: BioEnv) -> torch.Tensor:
         """Extract raw features from environment.
@@ -316,6 +366,29 @@ class FeatureExtractor:
         if "cost" in self._feature_set:
             idx = self.feature_map["cost"]
             obs[idx] = env.costs.data.mean(dim=0)
+
+        if "edge_exposure" in self._feature_set:
+            obs[self.feature_map["edge_exposure"]] = env.edge_exposure()
+
+        if "buffer_value" in self._feature_set:
+            obs[self.feature_map["buffer_value"]] = env.edge_buffer(self._cell_values)
+
+        if "pa_linking" in self._feature_set:
+            obs[self.feature_map["pa_linking"]] = self._connectivity.linking_value(
+                env.protected_cells_mask
+            ).to(self.device)
+
+        if "worst_species_value" in self._feature_set:
+            worst = worst_species(protected_fractions(env, self._worst_target), self._worst_fraction)
+            init_pop = env.ext_risk.init_pop.to(env.device)[worst].clamp(min=1e-12)
+            k_full = env._species_k[worst, None] * env.sdms.data_min_threshold[worst]
+            share = k_full / init_pop[:, None]
+            if self._worst_threat_weights is not None:
+                share = share * tail_threat_weights(env, worst, self._worst_threat_weights)[:, None]
+            value = share.sum(dim=0)
+            obs[self.feature_map["worst_species_value"]] = (
+                value / value.max().clamp(min=1e-12)
+            ).to(self.device)
 
         if self._static_features is not None:
             # add static features
@@ -410,4 +483,6 @@ class FeatureExtractor:
         self._conv_matrix = self._conv_matrix.to(self.device)
         self._rescaler_std = self._rescaler_std.to(self.device)
         self._rescaler_mean = self._rescaler_mean.to(self.device)
+        if self._cell_values is not None:
+            self._cell_values = self._cell_values.to(self.device)
         return self

@@ -61,6 +61,7 @@ class EpisodeRunner:
             verbose: bool = False,
             save_protection_history: bool = False,
             recorder: InferenceRecorder | None = None,
+            env_dynamics: bool = True,
     ):
         """Initialize episode runner.
 
@@ -76,6 +77,11 @@ class EpisodeRunner:
             save_protection_history: If True, record protection mask each step.
             recorder: Optional InferenceRecorder saving features, scores and cell
                       rankings at each policy decision (for xAI analyses).
+            env_dynamics: If False, time steps skip population dynamics (dispersal,
+                      growth, mortality) and the updates of disturbance, costs and
+                      SDMs: populations stay at their initial values and rewards only
+                      reflect which cells are protected. For static prioritization
+                      (e.g. one time step with many decisions and no disturbance).
         """
         self.env = env
         self.feature_extractor = feature_extractor
@@ -87,6 +93,7 @@ class EpisodeRunner:
         self.save_protection_history = save_protection_history
         self.protection_history = None
         self.recorder = recorder
+        self.env_dynamics = env_dynamics
 
     def get_info(self) -> dict[str, Any]:
         """Get episode information.
@@ -175,7 +182,7 @@ class EpisodeRunner:
                             )
 
                 # 4. Environment step (Always runs for the full length of n_steps)
-                self.env.step()
+                self.env.step(env_step=self.env_dynamics)
 
                 # 5. Calculate reward (currently only at each time step, not necessarily each action)
                 self.rewards.calc_reward(self.env)

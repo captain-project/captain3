@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "3.0.0 beta - 20260821"
+__version__ = "3.0.0 beta - 20261104"
 
 # Data structures
 # Agents
@@ -17,10 +17,14 @@ from captain.agents.policy_network import (
 from captain.agents.reward_aggregator import NoRewards, Rewards
 from captain.agents.rewards import (
     CalcReward,
+    CalcRewardConnectivity,
     CalcRewardDistFromTarget,
     CalcRewardExtRisk,
+    CalcRewardLayerOverlap,
     CalcRewardPersistentCost,
+    CalcRewardProtectedPopulation,
     CalcRewardSpecieValue,
+    CalcRewardWorstSpecies,
 )
 from captain.agents.spatial_cnn import SpatialCNN
 from captain.algorithms import TrainingLogger
@@ -34,7 +38,7 @@ from captain.algorithms.budget_manager import (
 from captain.algorithms.episode import BridgeEpisodeRunner, EpisodeRunner
 from captain.algorithms.evolution_train import EvolStrategiesTrainer
 from captain.algorithms.inference_recorder import InferenceRecorder
-from captain.algorithms.scheduler import LearningScheduler
+from captain.algorithms.scheduler import FactorSchedule, LearningScheduler, RewardWeightSchedule
 from captain.data.extinction_risk import ExtinctionRisk, ExtinctionRiskStatic
 from captain.data.spatial_data import (
     SpatialData,
@@ -47,7 +51,8 @@ from captain.data.spatial_data import (
 from captain.environment.bioenv import BioEnv
 
 # Utilities
-from captain.utils import data_loader, grid_utils, plots
+from captain.utils import data_loader, export, grid_utils, plots
+from captain.utils.connectivity import PAConnectivity
 
 __all__ = [
     # Version
@@ -73,6 +78,10 @@ __all__ = [
     "CalcRewardDistFromTarget",
     "CalcRewardPersistentCost",
     "CalcRewardSpecieValue",
+    "CalcRewardConnectivity",
+    "CalcRewardProtectedPopulation",
+    "CalcRewardWorstSpecies",
+    "CalcRewardLayerOverlap",
     "Rewards",
     "NoRewards",
     # Algorithms
@@ -81,12 +90,16 @@ __all__ = [
     "InferenceRecorder",
     "EvolStrategiesTrainer",
     "LearningScheduler",
+    "FactorSchedule",
+    "RewardWeightSchedule",
     "TrainingLogger",
     "GlobalBudgetManager",
     "RegionalBudgetManager",
     "NoBudgetManager",
     # Utilities
     "grid_utils",
+    "PAConnectivity",
     "plots",
     "data_loader",
+    "export",
 ]

@@ -57,6 +57,10 @@ class BioEnv:
             species_traits: pd.DataFrame | None = None,
             action_mask: SpatialData | None = None,
             distance_calculator: DistanceFromTarget | None = None,
+            edge_factor: float = 0.0,
+            edge_radius: int = 1,
+            edge_decay: float | None = None,
+            edge_source: str = "disturbance",
             device: torch.device | str = "cpu",
     ):
         """Initialize biodiversity environment.
@@ -77,6 +81,20 @@ class BioEnv:
                             needs to be a pd.DataFrame with first column = species names
                             then numeric values
             action_mask: can't/won't protect or do any actions in these cells
+            edge_factor: Edge effect strength in [0, 1]: protected cells receive
+                edge_factor * their edge exposure as extra disturbance, so protected
+                areas are not fully shielded near their border. 0 (default) disables it.
+            edge_radius: Neighbourhood radius in cells for the edge effect
+                (1 = the 8 surrounding cells). Cells outside the mask are ignored.
+            edge_decay: If given, neighbours are weighted by exp(-distance / edge_decay)
+                instead of equally, so the edge effect fades with distance from the
+                border (use with a larger edge_radius). None = equal weights.
+            edge_source: What makes a neighbour contribute to the edge exposure:
+                "disturbance" (default): the neighbour's disturbance if unprotected,
+                    so edges facing natural land cost nothing;
+                "unprotected": being unprotected, regardless of land use, i.e.
+                    exposure = 1 - weighted mean protection of the neighbourhood
+                    (an isolated protected cell has exposure 1).
             device: PyTorch device ('cpu', 'cuda', 'mps').
         """
         self.device = torch.device(device)
@@ -165,6 +183,25 @@ class BioEnv:
         # Validate growth rates
         if self._growth_rates.min() < 1.0:
             warnings.warn("Growth rates should be >= 1.0", UserWarning, stacklevel=2)
+
+        # Edge effect: row-normalized neighbour-averaging matrix (self excluded)
+        if not 0.0 <= edge_factor <= 1.0:
+            raise ValueError(f"edge_factor must be in [0, 1], got {edge_factor}")
+        if edge_source not in ("disturbance", "unprotected"):
+            raise ValueError(
+                f"edge_source must be 'disturbance' or 'unprotected', got {edge_source!r}"
+            )
+        self._edge_factor = float(edge_factor)
+        self._edge_source = edge_source
+        if self._edge_factor > 0:
+            # values @ matrix convention: (d, x) @ (x, x) -> (d, x)
+            self._scipy_edge = grid_utils.compute_convolution_matrix(
+                self.sdms._coords, radius=edge_radius, include_self=False, decay=edge_decay
+            ).tocsr()
+            if not self._use_scipy_sparse:
+                # A (row = neighbour weights of a cell) and its transpose for edge_buffer
+                self._torch_edge = scipy_sparse_to_torch(self._scipy_edge.T, self.device)
+                self._torch_edge_t = scipy_sparse_to_torch(self._scipy_edge, self.device)
 
         # Initialize state
         self.reset()
@@ -361,9 +398,15 @@ class BioEnv:
     def update_carrying_capacity(self) -> None:
         """Update carrying capacity based on disturbance and protection."""
         # 1. Compute effective disturbance: (d, x)
+        # Protection removes disturbance, except for the edge effect: protected
+        # cells receive edge_factor * edge exposure, the (weighted) mean over their
+        # neighbours of the unprotected disturbance or of being unprotected
+        protection = self.protection_matrix.data
+        eff_dist = (1.0 - protection) * self.disturbance.data
+        if self._edge_factor > 0:
+            exposure = self._neighbour_mean(self._edge_source_values())
+            eff_dist = eff_dist + self._edge_factor * protection * exposure
         # mean disturbance effect (if multiple disturbance layers)
-        eff_dist = 1.0 - self.protection_matrix.data
-        eff_dist = eff_dist * self.disturbance.data
         eff_dist = eff_dist / self.disturbance.shape[0]
 
         # 2. Project disturbance to species level: (s, d) @ (d, x) -> (s, x)
@@ -379,6 +422,62 @@ class BioEnv:
         k_dist = k_dist * self._species_k.unsqueeze(1)
 
         self._current_carrying_capacity = k_dist
+
+    def _neighbour_mean(self, values: torch.Tensor) -> torch.Tensor:
+        """Mean of each cell's neighbours (within edge_radius), shape (d, x) -> (d, x)."""
+        if self._use_scipy_sparse:
+            result = values.cpu().numpy() @ self._scipy_edge
+            return torch.from_numpy(np.asarray(result)).to(self.device, dtype=torch.float32)
+        return torch.sparse.mm(self._torch_edge, values.t()).t()
+
+    def _edge_source_values(self) -> torch.Tensor:
+        """Per-cell contribution to the edge exposure of neighbouring protected cells.
+
+        Unprotected disturbance (d, x) for edge_source="disturbance", or the
+        unprotected indicator (1, x) for edge_source="unprotected".
+        """
+        unprotected = 1.0 - self.protection_matrix.data
+        if self._edge_source == "disturbance":
+            return unprotected * self.disturbance.data
+        return unprotected
+
+    def edge_exposure(self) -> torch.Tensor:
+        """Edge exposure of each cell under the current protection, shape (n_cells,).
+
+        The exposure a cell has (if protected) or would have if protected now: the
+        weighted mean over its neighbours of their edge source values, averaged over
+        disturbance layers. A protected cell's carrying capacity is reduced by
+        sensitivity * edge_factor * exposure. Zeros if the edge effect is disabled.
+        """
+        if self._edge_factor == 0:
+            return torch.zeros(self.n_cells, device=self.device)
+        return self._neighbour_mean(self._edge_source_values()).mean(dim=0)
+
+    def edge_buffer(self, cell_values: torch.Tensor) -> torch.Tensor:
+        """Edge relief that protecting each cell would give its protected neighbours.
+
+        For cell c: edge_factor * src_c * sum_j A_jc * p_j * cell_values_j, where A_jc
+        is the weight of c in the neighbourhood mean of cell j, p_j the protection of
+        j and src_c the edge source value of c (layer mean; 0 if c is protected). With
+        cell_values_j = value of the full carrying capacity of cell j (summed over
+        species, times their sensitivity), this is the value gained by neighbours whose
+        edge exposure drops when c is protected.
+
+        Args:
+            cell_values: Per-cell values, shape (n_cells,).
+
+        Returns:
+            Buffer value per cell, shape (n_cells,). Zeros if the edge effect is disabled.
+        """
+        if self._edge_factor == 0:
+            return torch.zeros(self.n_cells, device=self.device)
+        protected_value = self.protection_matrix.data[0] * cell_values.to(self.device)
+        if self._use_scipy_sparse:
+            relief = protected_value.cpu().numpy() @ self._scipy_edge.T
+            relief = torch.from_numpy(np.asarray(relief)).to(self.device, dtype=torch.float32)
+        else:
+            relief = torch.sparse.mm(self._torch_edge_t, protected_value[:, None])[:, 0]
+        return self._edge_factor * self._edge_source_values().mean(dim=0) * relief
 
     def set_init_ext_risk(self) -> None:
         """Initialize extinction risk baseline from current state."""
@@ -487,6 +586,9 @@ class BioEnv:
 
         if hasattr(self, "_cached_dist"):
             self._cached_dist = self._cached_dist.to(self.device)
+        if hasattr(self, "_torch_edge"):
+            self._torch_edge = self._torch_edge.to(self.device)
+            self._torch_edge_t = self._torch_edge_t.to(self.device)
         if hasattr(self, "_species_dist"):
             # Note: For MPS, keep sparse matrices on CPU
             sparse_device = "cpu" if self.device.type == "mps" else self.device

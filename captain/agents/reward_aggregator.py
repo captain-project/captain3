@@ -103,7 +103,9 @@ class Rewards:
     def set_multipliers(
             self, multipliers: np.ndarray | torch.Tensor | list, verbose: bool = False
     ) -> None:
-        self._reward_calibration = torch.ones(len(self._reward_obj_list)) * multipliers
+        self._reward_calibration = torch.ones(len(self._reward_obj_list)) * torch.as_tensor(
+            multipliers, dtype=torch.float32
+        )
         if verbose:
             logger.info("New reward calibration weights: %s", self._reward_calibration)
 

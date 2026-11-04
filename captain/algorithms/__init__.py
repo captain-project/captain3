@@ -6,7 +6,7 @@ from captain.algorithms.budget_manager import GlobalBudgetManager, RegionalBudge
 from captain.algorithms.episode import BridgeEpisodeRunner, EpisodeRunner
 from captain.algorithms.evolution_train import EvolStrategiesTrainer
 from captain.algorithms.inference_recorder import InferenceRecorder
-from captain.algorithms.scheduler import LearningScheduler
+from captain.algorithms.scheduler import FactorSchedule, LearningScheduler, RewardWeightSchedule
 from captain.algorithms.train_utils import TrainingLogger
 
 __all__ = [
@@ -15,6 +15,8 @@ __all__ = [
     "InferenceRecorder",
     "EvolStrategiesTrainer",
     "LearningScheduler",
+    "FactorSchedule",
+    "RewardWeightSchedule",
     "TrainingLogger",
     "GlobalBudgetManager",
     "RegionalBudgetManager",

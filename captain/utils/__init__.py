@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from captain.utils import data_loader, grid_utils, plots
+from captain.utils import data_loader, export, grid_utils, plots
 
-__all__ = ["grid_utils", "data_loader", "plots"]
+__all__ = ["grid_utils", "data_loader", "export", "plots"]

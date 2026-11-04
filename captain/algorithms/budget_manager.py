@@ -1,4 +1,5 @@
 import logging
+import math
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -23,7 +24,9 @@ class GlobalBudgetManager:
         self.cells_per_time_step = cells_per_time_step
         self.feature_updates_per_time_step = feature_updates_per_time_step
 
-        self.cells_per_step = cells_per_time_step // feature_updates_per_time_step
+        # Round up so that feature_updates_per_time_step decisions can protect all
+        # cells_per_time_step cells (get_step_context caps the last one at the target)
+        self.cells_per_step = math.ceil(cells_per_time_step / feature_updates_per_time_step)
 
     def get_step_context(self, env) -> dict:
         remaining = self.total_target - int(env.protected_cells_mask.sum().item())
@@ -54,8 +57,9 @@ class RegionalBudgetManager:
         self.total_targets = total_targets
         self.feature_updates_per_time_step = feature_updates_per_time_step
 
+        # Rounded up, as in GlobalBudgetManager
         self.per_step_targets = {
-            r_id: max(1, val // feature_updates_per_time_step)
+            r_id: max(1, math.ceil(val / feature_updates_per_time_step))
             for r_id, val in cells_per_time_step.items()
         }
 

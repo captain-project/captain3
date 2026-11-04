@@ -200,7 +200,10 @@ def reconstruct_grid(data_2d, coords, original_spatial_shape):
 
 
 def compute_convolution_matrix(
-        coords: tuple[np.ndarray, np.ndarray], radius: int = 2
+        coords: tuple[np.ndarray, np.ndarray],
+        radius: int = 2,
+        include_self: bool = True,
+        decay: float | None = None,
 ) -> csr_matrix:
     """Compute a row-normalized sparse convolution matrix for spatial averaging.
 
@@ -212,6 +215,10 @@ def compute_convolution_matrix(
     Args:
         coords: Tuple of (x_indices, y_indices) for valid cells.
         radius: Neighborhood radius in cells (default 2 = 5x5 window).
+        include_self: If False, each cell's own value is excluded from its average
+            (e.g. radius=1 averages over the 8 surrounding cells only).
+        decay: If given, neighbours are weighted by exp(-distance / decay) (Euclidean
+            distance in cells) instead of equally, so nearer cells count more.
 
     Returns:
         Sparse CSR matrix of shape (n_cells, n_cells), transposed for
@@ -228,6 +235,16 @@ def compute_convolution_matrix(
 
     # Ensure it is a CSR matrix for fast multiplication
     adj = adj.tocsr()
+    if decay is not None:
+        if decay <= 0:
+            raise ValueError(f"decay must be > 0, got {decay}")
+        adj = adj.tocoo()
+        diff = points[adj.row] - points[adj.col]
+        dist = np.hypot(diff[:, 0], diff[:, 1])
+        adj = csr_matrix((np.exp(-dist / decay), (adj.row, adj.col)), shape=adj.shape)
+    if not include_self:
+        adj.setdiag(0)
+        adj.eliminate_zeros()
 
     # Row-normalize using diagonal matrix multiplication (efficient for sparse)
     # This ensures each row sums to 1, computing neighborhood averages

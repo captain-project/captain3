@@ -106,6 +106,11 @@ class TrainingLogger:
         header += [f"r_{r._name}" for r in episode.rewards._reward_obj_list]
         header += ["protected_cells", "w_mean", "w_std", "lr", "sigma", "jaccard"]
         header += list(episode.env.species_extinction_risk.keys())
+        # Reward multipliers used in each epoch (calibration x schedule), only when the
+        # trainer has a reward weight schedule
+        self._log_multipliers = getattr(trainer, "reward_weight_schedule", None) is not None
+        if self._log_multipliers:
+            header += [f"mult_{name}" for name in trainer.reward_names]
 
         os.makedirs(self.plot_dir, exist_ok=True)
 
@@ -147,6 +152,8 @@ class TrainingLogger:
             summary["jaccard_indx"],
         ]
         row += list(summary["extinction_risk"].values())
+        if self._log_multipliers:
+            row += [float(m) for m in self.trainer.last_reward_multipliers]
 
         with open(self.log_path, "a", newline="") as f:
             writer = csv.writer(f, delimiter="\t")

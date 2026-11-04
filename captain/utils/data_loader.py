@@ -14,7 +14,7 @@ def load_map(
         clip_min: float | None = None,
         clip_max: float | None = None,
         nan_to_num: bool = False,
-        select_channel: None | int = 0,
+        select_channel: None | int | range = 0,
 ):
     extension = os.path.splitext(filename)[1]
 
@@ -30,7 +30,7 @@ def load_map(
         data = rxr.open_rasterio(filename).to_numpy()
         if data.shape[0] > 1 and data.ndim == 3:
             # data = data[0]
-            print(f"Multiple channels detected in file {filename}")
+            print(f"{data.shape[0]} channels detected in file {filename}")
             if select_channel is not None:
                 data = data[select_channel]
                 print(f"Selecting channel {select_channel}")
@@ -72,6 +72,12 @@ def load_maps_from_dir(
     return data, np.array(names)
 
 
+import warnings
+
+import numpy as np
+import pandas as pd
+
+
 def load_trait_table(
         filename,
         species_list: list | np.ndarray,
@@ -82,48 +88,46 @@ def load_trait_table(
     tbl = reorder_by_species(trait_table, species_list, ref_column)
 
     if fill_gaps:
-        # 1. Calculate means for all numeric columns
+        # Calculate means on the subsetted table
         means = tbl.mean(numeric_only=True)
-        # 2. Fill the whole dataframe using the means dictionary
         tbl.fillna(means, inplace=True)
-        for col in tbl.select_dtypes(include="number").columns:
-            # This is safe because it explicitly re-assigns the data
-            tbl[col] = tbl[col].fillna(tbl[col].mean())
 
     return tbl
 
 
-def reorder_by_species(df, species_list, ref_column: str | None):
+def reorder_by_species(df: pd.DataFrame, species_list, ref_column: str | None = None):
     """
-    Reorders a DataFrame based on a specific list of species names.
-    Checks for mismatches in both directions.
+    Reorders and subsets a DataFrame based on a specific list of species names.
+    Issues a warning if DataFrame species are excluded, but raises ValueError if
+    requested species are missing from the DataFrame.
     """
     if ref_column is None:
         ref_column = df.columns[0]
 
-    # Convert species_name to a set for faster lookup
+    # Convert to sets for comparison
     df_species = set(df[ref_column])
     target_species = set(species_list)
 
-    # 1. Check for mismatches
-    # Species in your target list but missing from the DataFrame
     missing_in_df = target_species - df_species
-    # Species in the DataFrame but not in your target list
     missing_in_list = df_species - target_species
 
-    if missing_in_df or missing_in_list:
-        details = []
-        if missing_in_df:
-            details.append(f"missing from DataFrame: {sorted(missing_in_df)}")
-        if missing_in_list:
-            details.append(f"not in target list: {sorted(missing_in_list)}")
+    # 1. Fatal Error: Requested species don't exist in the DataFrame
+    if missing_in_df:
         raise ValueError(
-            f"Mismatches found between species_list and DataFrame "
-            f"'{ref_column}' column — {'; '.join(details)}"
+            f"{len(missing_in_df)} species in 'species_list' missing from DataFrame '{ref_column}' column: "
+            f"{sorted(missing_in_df, key=str)[:3]} ..."
         )
 
-    # 2. Reorder the rows
-    # We set species_name as the index, reindex it, and then reset it back to a column
+    # 2. Warning: DataFrame contains extra species (or NaNs) that will be dropped
+    if missing_in_list:
+        warnings.warn(
+            f"{len(missing_in_list)} entries in DataFrame were not found in 'species_list' "
+            f"and will be excluded from the subset: {sorted(missing_in_list, key=str)[:3]} ...",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # 3. Subset and reorder rows to match species_list exactly
     df_reordered = df.set_index(ref_column).reindex(species_list).reset_index()
 
     return df_reordered

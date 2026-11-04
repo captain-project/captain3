@@ -21,8 +21,45 @@ from captain.algorithms import train_utils as train_utils
 
 if TYPE_CHECKING:
     from captain.algorithms.episode import EpisodeRunner
+    from captain.algorithms.scheduler import RewardWeightSchedule
 
 logger = logging.getLogger(__name__)
+
+
+ADVANTAGE_NORMALIZATIONS = (None, "zscore", "rank")
+
+
+def normalize_advantages(rewards: np.ndarray, method: str | None,
+                         running_reward: float | None) -> np.ndarray:
+    """Advantages of the perturbations from their total rewards.
+
+    Args:
+        rewards: Total reward of each perturbation, shape (n,).
+        method: None = reward minus the running (EMA) baseline, in reward units;
+            "zscore" = (reward - batch mean) / batch std; "rank" = centred ranks in
+            [-0.5, 0.5] (fitness shaping, robust to outliers). With "zscore" and
+            "rank" the step size no longer depends on the scale of the rewards, only
+            on the ranking (and, for "zscore", relative differences) of perturbations.
+        running_reward: Baseline used when method is None (0 if None).
+
+    Returns:
+        Advantages, shape (n,).
+    """
+    rewards = np.asarray(rewards, dtype=float)
+    if method is None:
+        return rewards - (0.0 if running_reward is None else running_reward)
+    if method == "zscore":
+        std = rewards.std()
+        return (rewards - rewards.mean()) / std if std > 1e-12 else np.zeros_like(rewards)
+    if method == "rank":
+        n = len(rewards)
+        if n < 2:
+            return np.zeros_like(rewards)
+        ranks = np.empty(n)
+        ranks[np.argsort(rewards, kind="stable")] = np.arange(n)
+        return ranks / (n - 1) - 0.5
+    raise ValueError(f"advantage normalization must be one of {ADVANTAGE_NORMALIZATIONS}, "
+                     f"got {method!r}")
 
 
 def compute_evolutionary_update(
@@ -32,6 +69,7 @@ def compute_evolutionary_update(
     alpha: float,
     sigma: float,
     running_reward: float | None,
+    advantage_normalization: str | None = None,
 ) -> np.ndarray:
     """Compute evolution strategies weight update.
 
@@ -41,7 +79,9 @@ def compute_evolutionary_update(
         noise: Noise perturbations used for this epoch.
         alpha: Learning rate.
         sigma: Noise standard deviation.
-        running_reward: Baseline reward for advantage computation.
+        running_reward: Baseline reward for advantage computation (used when
+            advantage_normalization is None).
+        advantage_normalization: None, "zscore" or "rank" (see normalize_advantages).
 
     Returns:
         Updated weight vector.
@@ -55,11 +95,10 @@ def compute_evolutionary_update(
     # Extract rewards (handle both scalar and array rewards)
     rewards = np.array([np.sum(r[1]) for r in results])
     n = len(rewards)
+    advantages = normalize_advantages(rewards, advantage_normalization, running_reward)
 
     # Compute advantage-weighted noise
-    perturbed_advantage = [
-        (rr - running_reward) * nn for rr, nn in zip(rewards, noise, strict=True)
-    ]
+    perturbed_advantage = [aa * nn for aa, nn in zip(advantages, noise, strict=True)]
 
     # Update weights
     new_coeff = epoch_coeff + (alpha / (n * sigma)) * np.sum(perturbed_advantage, 0)
@@ -69,12 +108,16 @@ def compute_evolutionary_update(
 
 # Global worker state
 _runner: EpisodeRunner | None = None
+_setup_barrier: Any = None  # set in pool workers by init_setup_barrier
+SETUP_TIMEOUT = 600.0  # seconds a worker waits for the others to receive their runner
 
 
 def setup_worker(runner: EpisodeRunner) -> None:
     """Initialize worker with episode runner.
 
-    Called once per worker process to set up persistent state.
+    Called once per worker process to set up persistent state. In a pool, the worker
+    then waits at a barrier until every worker has its runner: otherwise a worker that
+    finishes early could take a second runner and leave another worker without one.
 
     Args:
         runner: EpisodeRunner instance for this worker.
@@ -82,13 +125,30 @@ def setup_worker(runner: EpisodeRunner) -> None:
     global _runner
     torch.set_num_threads(1)  # Prevent thread oversubscription
     _runner = runner
+    if _setup_barrier is not None:
+        _setup_barrier.wait(timeout=SETUP_TIMEOUT)
 
 
-def execute_task(params: np.ndarray) -> tuple[dict[str, Any], float]:
+def init_setup_barrier(barrier: Any) -> None:
+    """Pool initializer: store the barrier that setup_worker waits on."""
+    global _setup_barrier
+    _setup_barrier = barrier
+
+
+def set_reward_multipliers(runner: EpisodeRunner, multipliers: np.ndarray | None) -> None:
+    """Set the reward multipliers (calibration x schedule) of a runner, if it has any."""
+    if multipliers is not None and len(multipliers) == len(runner.rewards.names):
+        runner.rewards.set_multipliers(multipliers)
+
+
+def execute_task(
+    task: np.ndarray | tuple[np.ndarray, np.ndarray | None],
+) -> tuple[dict[str, Any], float]:
     """Execute one episode with given parameters.
 
     Args:
-        params: Policy weights to evaluate.
+        task: Policy weights to evaluate, or a (weights, reward multipliers) tuple; the
+            multipliers are set on the worker's rewards before the episode runs.
 
     Returns:
         Tuple of (info dict, total reward).
@@ -96,6 +156,11 @@ def execute_task(params: np.ndarray) -> tuple[dict[str, Any], float]:
     global _runner
     if _runner is None:
         raise RuntimeError("Worker not initialized. Call setup_worker first.")
+    if isinstance(task, tuple):
+        params, multipliers = task
+        set_reward_multipliers(_runner, multipliers)
+    else:
+        params = task
     return _runner.run_episode(params)
 
 
@@ -125,6 +190,8 @@ class EvolStrategiesTrainer:
         epsilon_reward: float = 0.5,
         n_perturbations: int | None = None,
         seed: int | None = None,
+        advantage_normalization: str | None = "zscore",
+        reward_weight_schedule: RewardWeightSchedule | None = None,
     ):
         """Initialize trainer.
 
@@ -138,7 +205,23 @@ class EvolStrategiesTrainer:
                 ``len(list_of_env_params)`` for backward compatibility. When using
                 sequential mode (single runner), this should be set explicitly.
             seed: Random seed for reproducibility.
+            advantage_normalization: How perturbation rewards become advantages:
+                "zscore" (default) = standardized within each epoch; "rank" = centred
+                ranks; None = reward minus the running baseline, so the step size
+                scales with the reward values (e.g. much larger after reward
+                calibration, which can make early epochs unstable). With "zscore" /
+                "rank" the step size depends on alpha and sigma only, while the
+                relative weights (and calibration) of the reward terms still decide
+                which perturbations are better.
+            reward_weight_schedule: Optional per-epoch multipliers of reward terms
+                (RewardWeightSchedule), applied on top of the reward weights and the
+                calibration. The multipliers of each epoch are sent with every episode,
+                so they also reach all worker processes.
         """
+        if advantage_normalization not in ADVANTAGE_NORMALIZATIONS:
+            raise ValueError(f"advantage_normalization must be one of "
+                             f"{ADVANTAGE_NORMALIZATIONS}, got {advantage_normalization!r}")
+        self.advantage_normalization = advantage_normalization
         self.epoch_coeff = initial_coeffs.astype(np.float32).copy()
         self.scheduler = scheduler or sched.LearningScheduler()
         self.running_reward: float | None = None
@@ -177,14 +260,40 @@ class EvolStrategiesTrainer:
             else:  # For Windows
                 ctx = mp.get_context("spawn")
 
-            self.pool = ctx.Pool(processes=n_workers)
-            self.pool.map(setup_worker, list_of_env_params)
+            # One runner per worker: after its setup, each worker waits at the barrier
+            # until all workers have one, so no worker can take a second runner and
+            # leave another without
+            self.pool = ctx.Pool(
+                processes=n_workers,
+                initializer=init_setup_barrier,
+                initargs=(ctx.Barrier(n_workers),),
+            )
+            self.pool.map(setup_worker, list_of_env_params[:n_workers], chunksize=1)
             logger.info(
                 f"Initialized pool trainer with {n_workers} workers, "
                 f"{self.n} perturbations, {len(self.epoch_coeff)} parameters"
             )
 
         self.reward_names = list_of_env_params[0].rewards.names
+
+        # Reward multipliers: calibration (calibrate_reward_scales) x schedule. Start from
+        # the multipliers already set on the runners' rewards (ones by default).
+        calib = getattr(list_of_env_params[0].rewards, "_reward_calibration", None)
+        if calib is not None and len(calib) == len(self.reward_names):
+            self._calibration = np.asarray(calib, dtype=float).copy()
+        else:
+            self._calibration = np.ones(len(self.reward_names))
+        self.reward_weight_schedule = reward_weight_schedule
+        if reward_weight_schedule is not None:
+            reward_weight_schedule.check_names(self.reward_names)
+            if advantage_normalization is None:
+                logger.warning(
+                    "reward_weight_schedule with advantage_normalization=None: the "
+                    "running reward baseline mixes reward scales across epochs; "
+                    "'zscore' or 'rank' is recommended"
+                )
+        self.epoch = 0  # epochs trained (sets the reward weight schedule)
+        self.last_reward_multipliers = self.reward_multipliers(0)
 
     @staticmethod
     def _apply_calibration_to_worker(multipliers, verbose=False):
@@ -242,9 +351,22 @@ class EvolStrategiesTrainer:
 
         return multipliers
 
+    def reward_multipliers(self, epoch: int | None = None) -> np.ndarray:
+        """Multiplier of each reward term at an epoch (default: the next one).
+
+        Calibration multipliers times the reward weight schedule's factors.
+        """
+        epoch = self.epoch if epoch is None else epoch
+        if self.reward_weight_schedule is None:
+            return self._calibration.copy()
+        return self._calibration * self.reward_weight_schedule.factors(epoch, self.reward_names)
+
     def calibrate_reward_scales(
         self, multipliers: np.ndarray, verbose: bool = False
     ) -> None:
+        # Kept by the trainer and sent with every episode (train_epoch); the copies
+        # pushed to the workers below only cover episodes run outside train_epoch
+        self._calibration = np.asarray(multipliers, dtype=float).copy()
         # 4. Update the local worker rewards
         # We use starmap to push these multipliers to the persistent workers
         if self._use_pool:
@@ -286,10 +408,14 @@ class EvolStrategiesTrainer:
             self.epoch_coeff + self.scheduler.sigma * noise[i] for i in range(self.n)
         ]
 
-        # 3. Evaluate perturbations
+        # 3. Evaluate perturbations, with this epoch's reward multipliers (calibration x
+        # schedule) set for every episode
+        multipliers = self.reward_multipliers()
+        self.last_reward_multipliers = multipliers
         if self._use_pool:
-            results = self.pool.map(execute_task, params)
+            results = self.pool.map(execute_task, [(p, multipliers) for p in params])
         else:
+            set_reward_multipliers(self._runner, multipliers)
             results = [self._runner.run_episode(p) for p in params]
 
         # 4. Initialize baseline if first epoch
@@ -304,6 +430,7 @@ class EvolStrategiesTrainer:
             alpha=self.scheduler.alpha,
             sigma=self.scheduler.sigma,
             running_reward=self.running_reward,
+            advantage_normalization=self.advantage_normalization,
         )
         self.epoch_coeff = new_coeff
 
@@ -319,6 +446,7 @@ class EvolStrategiesTrainer:
 
         # 8. Update scheduler
         self.scheduler.step(summary["jaccard_indx"])
+        self.epoch += 1
 
         return avg_reward, summary
 
@@ -346,6 +474,8 @@ class EvolStrategiesTrainer:
                 self.running_reward if self.running_reward is not None else np.nan
             ),
             "epsilon_reward": np.array(self.epsilon_reward),
+            "epoch": np.array(self.epoch),
+            "reward_calibration": self._calibration,
             # RNG state: large ints stored as strings in byte arrays
             "rng_state_state": np.void(str(rng_state["state"]["state"]).encode()),
             "rng_state_inc": np.void(str(rng_state["state"]["inc"]).encode()),
@@ -371,6 +501,13 @@ class EvolStrategiesTrainer:
         rr = float(data["running_reward"])
         self.running_reward = None if np.isnan(rr) else rr
         self.epsilon_reward = float(data["epsilon_reward"])
+        # Older checkpoints have no epoch / calibration (schedule restarts at epoch 0)
+        if "epoch" in data.files:
+            self.epoch = int(data["epoch"])
+        if "reward_calibration" in data.files:
+            calib = data["reward_calibration"]
+            if len(calib) == len(self.reward_names):
+                self._calibration = calib.astype(float)
 
         # Restore RNG state
         bg_state = self.rg.bit_generator.state

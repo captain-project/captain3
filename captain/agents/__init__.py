@@ -8,9 +8,13 @@ from captain.agents.policy_network import CellCNNPolicy, CellNN, PolicyNetwork
 from captain.agents.reward_aggregator import NoRewards, Rewards
 from captain.agents.rewards import (
     CalcReward,
+    CalcRewardConnectivity,
     CalcRewardDistFromTarget,
     CalcRewardExtRisk,
+    CalcRewardLayerOverlap,
     CalcRewardPersistentCost,
+    CalcRewardProtectedPopulation,
+    CalcRewardWorstSpecies,
 )
 from captain.agents.spatial_cnn import SpatialCNN
 
@@ -25,6 +29,10 @@ __all__ = [
     "CalcRewardExtRisk",
     "CalcRewardPersistentCost",
     "CalcRewardDistFromTarget",
+    "CalcRewardConnectivity",
+    "CalcRewardProtectedPopulation",
+    "CalcRewardWorstSpecies",
+    "CalcRewardLayerOverlap",
     "Rewards",
     "NoRewards",
 ]
