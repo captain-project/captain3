@@ -188,7 +188,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
             per_step_regional_targets[name] = int(
                 CELLS_PER_STEP * (r_mask.data.sum() / np.nansum(mask))
             )
-            region_masks[name] = r_mask._nonzero_cells_mask
+            region_masks[name] = r_mask.nonzero_cells_mask
             print(
                 f"Region {region_num} ({name}): size={r_mask.data.sum()}, "
                 f"target={target}, per_step={per_step_regional_targets[name]}"
@@ -247,7 +247,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
         print(f"Creating dispersal matrix: {disp_file}")
         cn.grid_utils.save_dispersal_distances(
             lambda_0=DISPERSAL_RATE,
-            coords=sdm._coords,
+            coords=sdm.coords,
             threshold=DISPERSAL_WINDOW,
             filename=str(disp_file),
         )

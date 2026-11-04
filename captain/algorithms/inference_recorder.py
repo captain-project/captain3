@@ -307,7 +307,7 @@ class InferenceRecorder:
         else:
             sample_idx = np.arange(n_cells)
 
-        coords = env.sdms._coords
+        coords = env.sdms.coords
         coords_row, coords_col = np.asarray(coords[0]), np.asarray(coords[1])
         if self.save_sample_coords:
             arrays["sample_coords_row"] = coords_row[sample_idx]
@@ -317,7 +317,7 @@ class InferenceRecorder:
             cells: dict[str, Any] = {
                 "coords_row": coords_row,
                 "coords_col": coords_col,
-                "grid_shape": np.asarray(env.sdms._data_shape[1:]),
+                "grid_shape": np.asarray(env.sdms.shape[1:]),
                 "feature_names": feature_names,
             }
             if region_names is not None:

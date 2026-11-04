@@ -7,11 +7,11 @@ including extinction risk changes and protection costs.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+import warnings
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 if TYPE_CHECKING:
     from captain.environment.bioenv import BioEnv
@@ -46,7 +46,6 @@ class CalcReward:
         self._name = name
         self._rescaler = rescaler if positive else -rescaler
         self._positive = positive
-        self._target_achieved = False
 
     @property
     def name(self) -> str:
@@ -66,13 +65,6 @@ class CalcReward:
 
     def reset(self) -> None:
         """Reset any internal state (called at episode start)."""
-        self._target_achieved = False
-        pass
-
-    @property
-    def name(self) -> str:
-        """Reward name."""
-        return self._name
 
 
 class CalcRewardPersistentCost(CalcReward):
@@ -174,7 +166,7 @@ class CalcRewardExtRisk(CalcReward):
 
         # Initialize if first step
         if self._previous_status_counts is None:
-            self._previous_status_counts = env.ext_risk._init_status_counts.clone()
+            self._previous_status_counts = env.ext_risk.init_status_counts.clone()
 
         # Ensure previous counts on same device
         if self._previous_status_counts.device != current_counts.device:
@@ -196,7 +188,6 @@ class CalcRewardExtRisk(CalcReward):
     def reset(self) -> None:
         """Reset tracking state."""
         self._previous_status_counts = None
-        self._target_achieved = False
 
     def to(self, device: torch.device | str) -> CalcRewardExtRisk:
         """Move to specified device.
@@ -214,8 +205,12 @@ class CalcRewardExtRisk(CalcReward):
         return self
 
 
-class CalcRewardSpecieValue(CalcReward):
-    """Reward based on total amount of species 'value'"""
+class CalcRewardSpeciesValue(CalcReward):
+    """Reward based on the total amount of a species 'value' trait.
+
+    Each species contributes its trait value (e.g. biomass, pollination) times its
+    population, either over the whole study area or only within protected cells.
+    """
 
     def __init__(
             self,
@@ -232,16 +227,18 @@ class CalcRewardSpecieValue(CalcReward):
         """Initialize species value reward.
 
         Args:
-            trait_name: which trait defines species value (from env.trait_map)
-            name: Reward identifier.
+            trait_name: Numeric column of the species trait table (BioEnv species_traits)
+                that defines each species' value.
+            name: Reward identifier (default: trait_name).
             rescaler: Scaling factor.
-            positive: If True, improvements yield positive reward.
-            threat_weights: Weights per threat category [LC, NT, VU, EN, CR].
-                           Typically [1, 0, -8, -16, -32] to penalize extinctions.
+            positive: If True, more value yields a higher reward.
             device: PyTorch device.
-
-        Raises:
-            ValueError: If threat_weights not provided.
+            trait_column_indx: Index of the trait among the numeric columns; if None, it
+                is looked up from trait_name.
+            protected_value: If True, only count the value within protected cells (per
+                protected cell); otherwise the mean population over all cells.
+            species_range: With protected_value, weigh species by their protected range
+                (presence) instead of their protected population.
         """
         if name is None:
             name = trait_name
@@ -253,8 +250,9 @@ class CalcRewardSpecieValue(CalcReward):
         self._species_range = species_range
 
     def calc_reward(self, env: BioEnv) -> float:
-        if self._trait_column_indx is None:
-            self._trait_column_indx = env.trait_map[self._trait_name]
+        trait_values = env.get_trait(
+            self._trait_name if self._trait_column_indx is None else self._trait_column_indx
+        )
 
         # average value
         if self._protected_value:
@@ -273,15 +271,22 @@ class CalcRewardSpecieValue(CalcReward):
                 )
 
             # Dot product with value (species-specific trait)
-            reward = torch.dot(
-                env._species_traits[:, self._trait_column_indx],
-                protected_amount_per_species,
-            )
+            reward = torch.dot(trait_values, protected_amount_per_species)
         else:
-            reward = torch.dot(
-                env._species_traits[:, self._trait_column_indx], env.h.mean(dim=1)
-            )
+            reward = torch.dot(trait_values, env.h.mean(dim=1))
         return reward.item() * self._rescaler
+
+
+class CalcRewardSpecieValue(CalcRewardSpeciesValue):
+    """Deprecated alias of CalcRewardSpeciesValue (to be removed in 3.1)."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        warnings.warn(
+            "CalcRewardSpecieValue is deprecated, use CalcRewardSpeciesValue",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
 
 
 class CalcRewardProtectedPopulation(CalcReward):
@@ -582,51 +587,11 @@ class CalcRewardConnectivity(CalcReward):
         super().__init__(name, rescaler, positive)
         self._connectivity = connectivity
 
+    @property
+    def connectivity(self) -> PAConnectivity:
+        """The PAConnectivity instance the reward is computed with."""
+        return self._connectivity
+
     def calc_reward(self, env: BioEnv) -> float:
         """ECA gain of the current protection, in [0, 1] (times rescaler)."""
         return self._connectivity.eca_gain(env.protected_cells_mask) * self._rescaler
-
-
-class CalcRewardDistFromTarget(CalcReward):
-    """Reward based on min distance to target, requires env with distance_calculator attribute."""
-
-    def __init__(
-            self,
-            name: str = "distance_from_target",
-            rescaler: float = 1.0,
-            positive: bool = False,  # minimize
-            exponent: float = 1,
-    ):
-        """Initialize distance reward.
-
-        Args:
-            name: Reward identifier.
-            rescaler: Scaling factor (typically 1/total_budget).
-            positive: If False, cost is a penalty (default).
-        """
-        super().__init__(name, rescaler, positive)
-        self._exponent = exponent
-
-
-
-
-class CalcRewardEdgeEffect(CalcReward):
-    """Reward based on min distance to target, requires env with distance_calculator attribute."""
-
-    def __init__(
-            self,
-            name: str = "edge_effect",
-            rescaler: float = 1.0,
-            positive: bool = True,  # maximize
-            exponent: float = 1,
-    ):
-        """Initialize distance reward.
-
-        Args:
-            name: Reward identifier.
-            rescaler: Scaling factor (typically 1/total_budget).
-            positive: If False, cost is a penalty (default).
-        """
-        super().__init__(name, rescaler, positive)
-        self._exponent = exponent
-

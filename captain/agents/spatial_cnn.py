@@ -14,6 +14,8 @@ import torch.nn as nn
 class SpatialCNN(nn.Module):
     """Multi-scale CNN with local and regional branches.
 
+    Experimental: the API may change in a minor release.
+
     Two parallel convolutional branches capture different spatial scales:
     - Local branch: 3x3 convolution (immediate neighbors)
     - Regional branch: 3x3 dilated convolution (wider landscape context)

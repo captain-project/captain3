@@ -152,7 +152,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
     if not disp_file.exists():
         cn.grid_utils.save_dispersal_distances(
             lambda_0=DISPERSAL_RATE,
-            coords=sdm._coords,
+            coords=sdm.coords,
             threshold=DISPERSAL_WINDOW,
             filename=str(disp_file),
         )

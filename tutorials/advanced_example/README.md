@@ -169,6 +169,12 @@ the cost penalty fell from -17.9 to about -5 (the plan moved to cheaper land). T
 worst-served term rose while its weight was annealed (shaded), then stayed noisy around 1
 (out of a possible 50), so the worst-served species remained poorly protected (see below).
 
+Training longer did not change this picture: in 100-epoch runs with three seeds and a
+50-epoch schedule (see [How long to train](../../docs/training.md#how-long-to-train)), the
+terms reached similar values (protected population 10.8, connectivity 43, cost -4.8), about
+20-30 epochs after the schedule ended. If you lengthen `ANNEAL_EPOCHS`, lengthen `N_EPOCHS`
+by the same amount.
+
 The total reward is not plotted: while the weight of `species_worst` changes, it mixes
 reward scales across epochs. Compare the per-term columns (`r_<term>`) of
 `training_log.tsv` instead.

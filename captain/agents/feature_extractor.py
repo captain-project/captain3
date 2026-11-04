@@ -74,7 +74,7 @@ class FeatureExtractor:
             self,
             env: BioEnv,
             feature_set: list[str] | None = None,
-            trait_features: list[str] | None = None,  # <- not fully implemented
+            trait_features: list[str] | None = None,
             static_features: np.ndarray | torch.Tensor | None = None,
             static_features_names: list[str] | None = None,
             convolution: int = 5,
@@ -118,19 +118,18 @@ class FeatureExtractor:
         self._feature_names = list(self._feature_set)
 
         if "current_ext_risk" in self._feature_set:
-            risk_names = [f"ext_risk_{i}" for i in range(env.ext_risk._n_classes)]
+            risk_names = [f"ext_risk_{i}" for i in range(env.ext_risk.n_classes)]
             idx = self._feature_set.index("current_ext_risk")
             self._feature_names[idx: idx + 1] = risk_names
-            self._n_risk_classes = env.ext_risk._n_classes
+            self._n_risk_classes = env.ext_risk.n_classes
         else:
             self._n_risk_classes = 0
 
         if trait_features is not None:
-            self._feature_set = self._feature_set + trait_features
-            self._feature_names = self._feature_names + trait_features
-            self._use_trait_features = True
-        else:
-            self._use_trait_features = False
+            raise NotImplementedError(
+                "trait_features is not implemented yet; pass trait-based layers as "
+                "static_features instead"
+            )
 
         if isinstance(static_features, (np.ndarray, torch.Tensor)):
             self._static_features = torch.as_tensor(static_features).to(self.device)
@@ -167,7 +166,7 @@ class FeatureExtractor:
         # Convolution matrix for neighborhood features
         self.convolution = convolution
         scipy_conv = grid_utils.compute_convolution_matrix(
-            env.disturbance._coords, radius=int(self.convolution - 1 / 2)
+            env.disturbance.coords, radius=int(self.convolution - 1 / 2)
         )
         self._conv_matrix = scipy_sparse_to_torch(scipy_conv, self.device)
 
@@ -245,11 +244,11 @@ class FeatureExtractor:
             if new_features.shape != target_shape:
                 try:
                     new_features = new_features.view(target_shape)
-                except RuntimeError:
+                except RuntimeError as err:
                     raise ValueError(
                         f"Cannot cast incoming shape {new_features.shape} to match "
                         f"the target channel slice shape {target_shape}."
-                    )
+                    ) from err
             self._static_features[indices] = new_features
 
         # Case C: Multiple Indices (e.g., resetting channels [0, 2, 5])
@@ -292,7 +291,7 @@ class FeatureExtractor:
 
         if "time" in self._feature_set:
             idx = self.feature_map["time"]
-            obs[idx].fill_(env._env_step_num / self._time_rescale)
+            obs[idx].fill_(env.env_step_num / self._time_rescale)
 
         if "disturbance" in self._feature_set:
             idx = self.feature_map["disturbance"]
@@ -374,14 +373,17 @@ class FeatureExtractor:
             obs[self.feature_map["buffer_value"]] = env.edge_buffer(self._cell_values)
 
         if "pa_linking" in self._feature_set:
+            assert self._connectivity is not None  # checked in __init__
             obs[self.feature_map["pa_linking"]] = self._connectivity.linking_value(
                 env.protected_cells_mask
             ).to(self.device)
 
         if "worst_species_value" in self._feature_set:
             worst = worst_species(protected_fractions(env, self._worst_target), self._worst_fraction)
+            if env.ext_risk.init_pop is None:
+                raise RuntimeError("Initial populations not set, call env.reset() first")
             init_pop = env.ext_risk.init_pop.to(env.device)[worst].clamp(min=1e-12)
-            k_full = env._species_k[worst, None] * env.sdms.data_min_threshold[worst]
+            k_full = env.species_k[worst, None] * env.sdms.data_min_threshold[worst]
             share = k_full / init_pop[:, None]
             if self._worst_threat_weights is not None:
                 share = share * tail_threat_weights(env, worst, self._worst_threat_weights)[:, None]
@@ -459,7 +461,7 @@ class FeatureExtractor:
 
         obs_np = obs.cpu().numpy()
         feature_3d = grid_utils.reconstruct_grid(
-            obs_np, env.disturbance._coords, env.disturbance._data_shape[1:]
+            obs_np, env.disturbance.coords, env.disturbance.shape[1:]
         )
         for i in range(self._n_features):
             plots.plot_grid(

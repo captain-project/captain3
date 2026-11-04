@@ -123,7 +123,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
     if not disp_file.exists():
         cn.grid_utils.save_dispersal_distances(
             lambda_0=DISPERSAL_RATE,
-            coords=sdm._coords,
+            coords=sdm.coords,
             threshold=DISPERSAL_WINDOW,
             filename=str(disp_file),
         )
@@ -176,8 +176,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
 
 def rewards_cost(episode: cn.EpisodeRunner) -> float:
     """Current value of the cost term (minus the share of the total cost protected)."""
-    cost_term = next(t for t in episode.rewards._reward_obj_list if t.name == "cost")
-    return float(cost_term.calc_reward(episode.env))
+    return float(episode.rewards.get_term("cost").calc_reward(episode.env))
 
 
 # =============================================================================

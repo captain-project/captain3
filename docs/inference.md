@@ -35,8 +35,7 @@ runner = cn.EpisodeRunner(
 runner.run_episode(weights)
 ```
 
-`BridgeEpisodeRunner` accepts the same `recorder` argument. In `examples/run_inference.py`
-this is controlled by `SAVE_XAI_DATA` and `XAI_STEPS`.
+In `examples/run_inference.py` this is controlled by `SAVE_XAI_DATA` and `XAI_STEPS`.
 
 ## Output files
 

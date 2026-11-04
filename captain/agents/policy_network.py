@@ -70,10 +70,7 @@ class CellNN(nn.Module):
         act_cls = activation_classes[activation]
 
         # 2. Normalize input to a list of integers
-        if isinstance(hidden_dim, int):
-            hidden_dims = [hidden_dim]
-        else:
-            hidden_dims = list(hidden_dim)
+        hidden_dims = [hidden_dim] if isinstance(hidden_dim, int) else list(hidden_dim)
 
         # 3. Construct layers dynamically
         layers = []
@@ -112,6 +109,8 @@ class CellNN(nn.Module):
 
 class CellCNNPolicy(nn.Module):
     """Composite module registering SpatialCNN and CellNN as submodules.
+
+    Experimental: the API may change in a minor release.
 
     This allows Evolution Strategies to flatten/unflatten all parameters
     (CNN + CellNN) as a single vector. The feature extractor holds a reference

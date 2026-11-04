@@ -255,10 +255,8 @@ class EvolStrategiesTrainer:
             # is created, the forked children deadlock on the first tensor
             # operation.  "forkserver" avoids this by spawning workers from
             # a clean server process that has not yet initialised OMP.
-            if os.name == "posix":  # For Unix-based systems (macOS, Linux)
-                ctx = mp.get_context("forkserver")
-            else:  # For Windows
-                ctx = mp.get_context("spawn")
+            # forkserver on Unix-based systems (macOS, Linux), spawn on Windows
+            ctx = mp.get_context("forkserver" if os.name == "posix" else "spawn")
 
             # One runner per worker: after its setup, each worker waits at the barrier
             # until all workers have one, so no worker can take a second runner and
@@ -538,7 +536,7 @@ class EvolStrategiesTrainer:
         # Get names from the first runner's reward list
         # Create name -> value mapping
         calib_dict = {
-            name: float(val) for name, val in zip(self.reward_names, multipliers)
+            name: float(val) for name, val in zip(self.reward_names, multipliers, strict=True)
         }
 
         with open(file_path, "w") as f:
@@ -549,7 +547,7 @@ class EvolStrategiesTrainer:
 
     def load_reward_calibration(self, file_path, verbose=False):
         """Loads multipliers from JSON and aligns them with current reward order."""
-        with open(file_path, "r") as f:
+        with open(file_path) as f:
             calib_dict = json.load(f)
 
         # Build the multiplier array based on current reward order
@@ -566,7 +564,8 @@ class EvolStrategiesTrainer:
 
     def close(self) -> None:
         """Clean up worker pool (no-op in sequential mode)."""
-        if self._use_pool and hasattr(self, "pool"):
+        # getattr: __init__ may have failed before these were set
+        if getattr(self, "_use_pool", False) and hasattr(self, "pool"):
             self.pool.close()
             self.pool.join()
 

@@ -9,11 +9,11 @@ from captain.agents.reward_aggregator import NoRewards, Rewards
 from captain.agents.rewards import (
     CalcReward,
     CalcRewardConnectivity,
-    CalcRewardDistFromTarget,
     CalcRewardExtRisk,
     CalcRewardLayerOverlap,
     CalcRewardPersistentCost,
     CalcRewardProtectedPopulation,
+    CalcRewardSpeciesValue,
     CalcRewardWorstSpecies,
 )
 from captain.agents.spatial_cnn import SpatialCNN
@@ -28,10 +28,10 @@ __all__ = [
     "CalcReward",
     "CalcRewardExtRisk",
     "CalcRewardPersistentCost",
-    "CalcRewardDistFromTarget",
     "CalcRewardConnectivity",
     "CalcRewardProtectedPopulation",
     "CalcRewardWorstSpecies",
+    "CalcRewardSpeciesValue",
     "CalcRewardLayerOverlap",
     "Rewards",
     "NoRewards",

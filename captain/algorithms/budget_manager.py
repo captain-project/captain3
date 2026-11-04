@@ -1,12 +1,8 @@
 import logging
 import math
-from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
-
-if TYPE_CHECKING:
-    from captain.agents.rewards import Rewards
 
 logger = logging.getLogger(__name__)
 

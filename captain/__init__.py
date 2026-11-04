@@ -1,8 +1,8 @@
-"""CAPTAIN-NG: Evolutionary reinforcement learning for biodiversity conservation."""
+"""CAPTAIN: Conservation Area Prioritization Through Artificial INtelligence."""
 
 from __future__ import annotations
 
-__version__ = "3.0.0 beta - 20261104"
+__version__ = "3.0.0rc1"
 
 # Data structures
 # Agents
@@ -18,11 +18,11 @@ from captain.agents.reward_aggregator import NoRewards, Rewards
 from captain.agents.rewards import (
     CalcReward,
     CalcRewardConnectivity,
-    CalcRewardDistFromTarget,
     CalcRewardExtRisk,
     CalcRewardLayerOverlap,
     CalcRewardPersistentCost,
     CalcRewardProtectedPopulation,
+    CalcRewardSpeciesValue,
     CalcRewardSpecieValue,
     CalcRewardWorstSpecies,
 )
@@ -35,7 +35,7 @@ from captain.algorithms.budget_manager import (
 )
 
 # Algorithms
-from captain.algorithms.episode import BridgeEpisodeRunner, EpisodeRunner
+from captain.algorithms.episode import EpisodeRunner
 from captain.algorithms.evolution_train import EvolStrategiesTrainer
 from captain.algorithms.inference_recorder import InferenceRecorder
 from captain.algorithms.scheduler import FactorSchedule, LearningScheduler, RewardWeightSchedule
@@ -59,6 +59,7 @@ __all__ = [
     "__version__",
     # Data
     "SpatialData",
+    "StochasticSpatialData",
     "ExtinctionRisk",
     "ExtinctionRiskStatic",
     "load_spatial_data",
@@ -75,9 +76,9 @@ __all__ = [
     "SpatialCNN",
     "CalcReward",
     "CalcRewardExtRisk",
-    "CalcRewardDistFromTarget",
     "CalcRewardPersistentCost",
     "CalcRewardSpecieValue",
+    "CalcRewardSpeciesValue",
     "CalcRewardConnectivity",
     "CalcRewardProtectedPopulation",
     "CalcRewardWorstSpecies",
@@ -86,7 +87,6 @@ __all__ = [
     "NoRewards",
     # Algorithms
     "EpisodeRunner",
-    "BridgeEpisodeRunner",
     "InferenceRecorder",
     "EvolStrategiesTrainer",
     "LearningScheduler",

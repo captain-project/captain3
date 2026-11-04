@@ -28,6 +28,8 @@ N_INPUT_CHANNELS: int = 12
 class FeatureExtractorCNN:
     """Extract per-cell features using a learned SpatialCNN.
 
+    Experimental: the API may change in a minor release.
+
     Builds a (1, 12, H, W) grid from BioEnv state each timestep, runs it
     through a SpatialCNN, and extracts valid-cell features.
 
@@ -77,14 +79,14 @@ class FeatureExtractorCNN:
         self.device = torch.device(device) if device else env.device
         self.cnn = cnn.to(self.device)
         self._time_rescale = time_rescale
-        self._n_risk_classes = env.ext_risk._n_classes
+        self._n_risk_classes = env.ext_risk.n_classes
 
         # Grid dimensions from SpatialData
-        self._grid_h, self._grid_w = env.sdms._data_shape[1:]
+        self._grid_h, self._grid_w = env.sdms.shape[1:]
         self._n_cells = env.n_cells
 
         # Coordinate indices for mapping between flat cells and 2D grid
-        coords = env.sdms._coords
+        coords = env.sdms.coords
         self._row_coords = torch.tensor(coords[0], dtype=torch.long, device=self.device)
         self._col_coords = torch.tensor(coords[1], dtype=torch.long, device=self.device)
 
@@ -169,7 +171,7 @@ class FeatureExtractorCNN:
         g[0, 9, r, c] = env.protected_cells_mask.float()
 
         # Ch 10: time
-        g[0, 10, r, c] = env._env_step_num / self._time_rescale
+        g[0, 10, r, c] = env.env_step_num / self._time_rescale
 
         # Ch 11: valid cell mask (already filled in __init__, never changes)
 

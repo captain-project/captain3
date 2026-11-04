@@ -103,7 +103,7 @@ class TrainingLogger:
 
         # Initialize CSV Header
         header = ["epoch", "running_reward", "avg_reward"]
-        header += [f"r_{r._name}" for r in episode.rewards._reward_obj_list]
+        header += [f"r_{name}" for name in episode.rewards.names]
         header += ["protected_cells", "w_mean", "w_std", "lr", "sigma", "jaccard"]
         header += list(episode.env.species_extinction_risk.keys())
         # Reward multipliers used in each epoch (calibration x schedule), only when the
@@ -142,7 +142,7 @@ class TrainingLogger:
         # 3. CSV Logging
         w = self.trainer.get_weights()
         row = [epoch, self.trainer.running_reward, avg_reward]
-        row += [r for r in summary["avg_rewards_by_type"]]
+        row += list(summary["avg_rewards_by_type"])
         row += [
             summary["avg_protected_cells"],
             np.mean(w),

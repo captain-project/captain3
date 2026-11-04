@@ -241,7 +241,9 @@ global agent goes from about -6.1 to -4.3 and that of the regional agent from
 about -5.5 to -4.2. Single epochs are noisy (each episode simulates 50 time steps
 of population dynamics under climate change), and the global run has a few
 worse epochs towards the end, so 20 epochs with 6 perturbations is enough to
-see training work but not to converge.
+see training work but not to converge. In a 100-epoch study with three seeds
+(see [How long to train](../../docs/training.md#how-long-to-train)), the global
+agent levelled off after about 40 epochs.
 
 ### Priority maps: global vs. regional agent
 
@@ -283,7 +285,9 @@ where you'd want to draw real conclusions.
 
 - Try a specific region (`USE_REGIONAL_AGENTS = False; REGION_ID = "tile_r2_c2"`)
   to see a single agent restricted to one sub-area.
-- Increase `N_EPOCHS`/`N_PERTURBATIONS` for a more thoroughly trained policy.
+- Increase `N_EPOCHS` (to about 40 on the toy data, see
+  [How long to train](../../docs/training.md#how-long-to-train)) and
+  `N_PERTURBATIONS` for a more thoroughly trained policy.
 - Use the saved xAI data (`inference/xai/`) to see which features drive the
   policy's ranking, e.g. with a surrogate model of `features_input` against
   `scores`, or of top vs. random cells (`sample_is_top`).

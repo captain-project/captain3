@@ -10,7 +10,7 @@ of them on the toy data (with edge effects and connectivity), see the
   weights over training (reward weight schedules)
 - extinction risk (`CalcRewardExtRisk`)
 - protection cost (`CalcRewardPersistentCost`)
-- species value (`CalcRewardSpecieValue`)
+- species value (`CalcRewardSpeciesValue`)
 - protected population (`CalcRewardProtectedPopulation`)
 - connectivity among protected areas (`CalcRewardConnectivity`)
 - worst-served species (`CalcRewardWorstSpecies`) and spatial layers such as trails
@@ -161,13 +161,13 @@ the agent to prefer cheaper cells for the same conservation gain. Note that the
 *number* of protected cells is set by the budget manager, not by this term: it
 only shifts *which* cells are chosen.
 
-## 4. Species value: `CalcRewardSpecieValue`
+## 4. Species value: `CalcRewardSpeciesValue`
 
 Rewards the amount of a species trait (an ecosystem-service value such as
 pollination, biomass or carbon) held by the populations.
 
 ```python
-cn.CalcRewardSpecieValue(
+cn.CalcRewardSpeciesValue(
     trait_name="pollination",  # a numeric column of the species trait table
     protected_value=True,
     species_range=False,
@@ -262,7 +262,7 @@ through newly protected land.
 
 ```python
 conn = cn.PAConnectivity(
-    env.sdms._coords,
+    env.sdms.coords,
     units,               # unit id per cell: 0 = none, k = unit k (e.g. labelled PAs)
     resistance,          # cost of crossing each unprotected cell (e.g. relative cost)
     initial_protection=env.protected_cells_mask,
@@ -368,7 +368,7 @@ to avoid edge-heavy layouts if a reward term responds to the edge effect:
 |---|---|
 | `CalcRewardExtRisk` | Only when the change pushes a species across a class threshold (weak, noisy) |
 | `CalcRewardPersistentCost` | No (cost does not depend on populations) |
-| `CalcRewardSpecieValue` | Yes with `species_range=False`; no with `species_range=True` |
+| `CalcRewardSpeciesValue` | Yes with `species_range=False`; no with `species_range=True` |
 | `CalcRewardProtectedPopulation` | Yes, continuously |
 | `CalcRewardConnectivity` | No (a link counts once its cells are protected) |
 | `CalcRewardWorstSpecies` | Yes, through the worst-served species' populations |
@@ -388,7 +388,7 @@ layouts (the same few class changes, or none, in both).
 |---|---|---|---|
 | `CalcRewardExtRisk` | Red List class changes | Discrete (thresholds) | Depends on species counts |
 | `CalcRewardPersistentCost` | Cost of protected cells | Continuous | Set by `rescaler` |
-| `CalcRewardSpecieValue` | Trait-weighted absolute amounts | Continuous | Set by `rescaler` |
+| `CalcRewardSpeciesValue` | Trait-weighted absolute amounts | Continuous | Set by `rescaler` |
 | `CalcRewardProtectedPopulation` | Risk-weighted protected fraction of each species | Continuous | `[0, 1]` per step |
 | `CalcRewardConnectivity` | ECA gain among protected-area units | Continuous | `[0, 1]` per step |
 | `CalcRewardWorstSpecies` | Protected fraction of the worst-served species | Continuous (soft maximin) | `[0, 1]` per step |
@@ -396,7 +396,7 @@ layouts (the same few class changes, or none, in both).
 
 A typical biodiversity setup combines one biodiversity term
 (`CalcRewardProtectedPopulation` or `CalcRewardExtRisk`) with
-`CalcRewardPersistentCost`, plus `CalcRewardSpecieValue` when an ecosystem
+`CalcRewardPersistentCost`, plus `CalcRewardSpeciesValue` when an ecosystem
 service matters and `CalcRewardConnectivity` to link protected areas. Recalibrate
 whenever the set of terms changes (terms already on `[0, 1]` scales usually need no
 calibration).

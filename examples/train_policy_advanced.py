@@ -147,7 +147,7 @@ def results_dir() -> Path:
 
 def existing_protection(mask: np.ndarray, sdm: cn.SpatialData) -> np.ndarray:
     """Existing protected cells, shape (n_cells,), from EXISTING_PA_FILE or stand-ins."""
-    rows, cols = (np.asarray(c) for c in sdm._coords)
+    rows, cols = (np.asarray(c) for c in sdm.coords)
     if EXISTING_PA_FILE is not None:
         pa_grid, _ = cn.data_loader.load_map(DATA_DIR / EXISTING_PA_FILE, nan_to_num=True)
         return np.asarray(pa_grid).squeeze()[rows, cols] > 0
@@ -216,7 +216,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
     # Existing protected areas: the protection matrix starts with them, and the budget
     # adds TARGET_PROTECTED_CELLS_FRACTION of the valid cells on top
     protected0 = existing_protection(mask, sdm)
-    rows, cols = (np.asarray(c) for c in sdm._coords)
+    rows, cols = (np.asarray(c) for c in sdm.coords)
     protection_grid = np.zeros(sdm.shape[1:])
     protection_grid[rows, cols] = protected0
     protection = cn.SpatialData(data=protection_grid, mask=mask, lower_bound=0, upper_bound=1)
@@ -234,7 +234,7 @@ def create_episode_runner() -> cn.EpisodeRunner:
     if not disp_file.exists():
         cn.grid_utils.save_dispersal_distances(
             lambda_0=DISPERSAL_RATE,
-            coords=sdm._coords,
+            coords=sdm.coords,
             threshold=DISPERSAL_WINDOW,
             filename=str(disp_file),
         )
@@ -269,9 +269,9 @@ def create_episode_runner() -> cn.EpisodeRunner:
         suitability = env.sdms.data_min_threshold
         weights = torch.as_tensor(THREAT_WEIGHTS, dtype=suitability.dtype, device=env.device)
         per_capita = weights[env.ext_risk.init_status] / env.ext_risk.init_pop.clamp(min=1e-8)
-        value = (per_capita[:, None] * env._species_k[:, None] * suitability).sum(dim=0)
-        sens = env._species_sensitivity.mean(dim=1)
-        full_value = ((per_capita * sens)[:, None] * env._species_k[:, None] * suitability).sum(0)
+        value = (per_capita[:, None] * env.species_k[:, None] * suitability).sum(dim=0)
+        sens = env.sensitivity_rates.mean(dim=1)
+        full_value = ((per_capita * sens)[:, None] * env.species_k[:, None] * suitability).sum(0)
         cell_values = full_value / value.median().clamp(min=1e-12)
         feature_set += ["edge_exposure", "buffer_value"]
 
@@ -350,7 +350,7 @@ def summarize_plan(episode: cn.EpisodeRunner, weights: np.ndarray, out_dir: Path
     protected0 = env.protected_cells_mask.cpu().numpy().astype(bool)  # existing protection
     episode.run_episode(weights)
 
-    rows, cols = (np.asarray(c) for c in env.sdms._coords)
+    rows, cols = (np.asarray(c) for c in env.sdms.coords)
     protected = env.protected_cells_mask.cpu().numpy().astype(bool)
 
     # Plan grid: 1 = existing protection, 2 = new protection, NaN outside the study area
@@ -393,7 +393,7 @@ def summarize_plan(episode: cn.EpisodeRunner, weights: np.ndarray, out_dir: Path
     print(f"  protected cells: {protected.sum()} ({protected0.sum()} existing)")
     print(f"  protected patches: {n_patches}, median size {np.median(sizes):.0f} cells, "
           f"{(sizes == 1).sum()} isolated cells")
-    for term in episode.rewards._reward_obj_list:  # value of each term at the end
+    for term in episode.rewards.terms:  # value of each term at the end
         print(f"  {term.name}: {float(term.calc_reward(env)):.3f}")
     print(f"Plan saved to: {out_dir / 'protection_plan.png'} and protection_plan.kmz")
 

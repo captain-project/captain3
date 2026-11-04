@@ -175,7 +175,7 @@ if USE_REGIONAL_AGENTS:
         per_step_regional_targets[name] = int(
             CELLS_PER_STEP * (r_mask.data.sum() / np.nansum(mask))
         )
-        region_masks[name] = r_mask._nonzero_cells_mask
+        region_masks[name] = r_mask.nonzero_cells_mask
         print(
             f"Region {region_num} ({name}): size={r_mask.data.sum()}, "
             f"target={target}, per_step={per_step_regional_targets[name]}"
@@ -234,7 +234,7 @@ if not disp_file.exists():
     print(f"Creating dispersal matrix: {disp_file}")
     cn.grid_utils.save_dispersal_distances(
         lambda_0=DISPERSAL_RATE,
-        coords=sdm._coords,
+        coords=sdm.coords,
         threshold=DISPERSAL_WINDOW,
         filename=str(disp_file),
     )
@@ -326,16 +326,8 @@ cn.plots.plot_grid(
 history = (res["protection_history"] > 0).int() * (
         1 + res["protection_history"].max() - res["protection_history"]
 )
-protection_res = cn.SpatialData(
-    data=np.zeros(disturbance.shape),
-    mask=mask,
-    lower_bound=0,
-    upper_bound=1,
-)
-protection_res._data += history
-
 cn.plots.plot_grid(
-    protection_res.reconstruct_grid[0] + (2024 * (protection.reconstruct_grid[0] > 0)),
+    disturbance.to_grid(history) + (2024 * (protection.reconstruct_grid[0] > 0)),
     title="protection matrix through time",
     outfile=RES_DIR / "protection_matrix_through_time",
     dpi=300,

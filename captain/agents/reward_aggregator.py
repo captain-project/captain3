@@ -138,6 +138,22 @@ class Rewards:
         """Names of all reward components."""
         return [obj.name for obj in self._reward_obj_list]
 
+    @property
+    def terms(self) -> list[CalcReward]:
+        """The reward components (CalcReward instances), in order."""
+        return list(self._reward_obj_list)
+
+    def get_term(self, name: str) -> CalcReward:
+        """Reward component by name.
+
+        Raises:
+            KeyError: If no component has this name.
+        """
+        for obj in self._reward_obj_list:
+            if obj.name == name:
+                return obj
+        raise KeyError(f"No reward term {name!r}; available: {self.names}")
+
 
 class NoRewards(Rewards):
     def __init__(self, reward_obj_list=None):

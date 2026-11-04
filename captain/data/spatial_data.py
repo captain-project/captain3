@@ -114,7 +114,7 @@ class SpatialData:
             if isinstance(multi_per_step, np.ndarray):
                 multi_per_step = torch.from_numpy(multi_per_step.astype(np.float32))
             if multi_per_step.ndim == 2:
-                multi_per_step = multi_per_step.unsqueeze()
+                multi_per_step = multi_per_step.unsqueeze(0)
             multi_np = multi_per_step.numpy()
             flat_multi, _, _ = grid_utils.flatten_grid(multi_np, mask)
             self._multi = torch.from_numpy(flat_multi).to(self.device, self.dtype)
@@ -162,9 +162,17 @@ class SpatialData:
         self._step = 0
         self.update_nonzero_mask()
 
-    def reset_threshold(self, min_threshold: float) -> None:
+    def reset_threshold(
+            self, min_threshold: float | np.ndarray | torch.Tensor | None
+    ) -> None:
+        """Set the minimum value below which data_min_threshold is zero.
+
+        Args:
+            min_threshold: One value for all channels, one value per channel, or None
+                for no threshold.
+        """
         if min_threshold is not None:
-            if isinstance(min_threshold, float):
+            if isinstance(min_threshold, (int, float)):
                 min_threshold = np.repeat(min_threshold, self._data_shape[0])
             if isinstance(min_threshold, np.ndarray):
                 min_threshold = torch.from_numpy(min_threshold.astype(np.float32))
@@ -244,6 +252,35 @@ class SpatialData:
     def names(self) -> list[str]:
         """Channel names."""
         return self._names
+
+    @property
+    def coords(self) -> tuple[np.ndarray, np.ndarray]:
+        """Grid (row, column) indices of the valid cells, in the order of the data columns."""
+        return self._coords
+
+    @property
+    def nonzero_cells_mask(self) -> torch.Tensor:
+        """Cells with a non-zero value in any channel, shape (valid_cells,)."""
+        return self._nonzero_cells_mask
+
+    def to_grid(self, values: torch.Tensor | np.ndarray) -> np.ndarray:
+        """Map per-cell values onto the grid of this layer.
+
+        Args:
+            values: Values of the valid cells, shape (valid_cells,) or
+                (channels, valid_cells), in the order of the data columns.
+
+        Returns:
+            NumPy array of shape (rows, cols), or (channels, rows, cols) for 2-D input,
+            with NaN outside the valid cells.
+        """
+        if isinstance(values, torch.Tensor):
+            values = values.detach().cpu().numpy()
+        values = np.asarray(values)
+        grid = grid_utils.reconstruct_grid(
+            np.atleast_2d(values), self._coords, self._data_shape[1:]
+        )
+        return grid[0] if values.ndim == 1 else grid
 
     def to(self, device: torch.device | str) -> SpatialData:
         """Move data to specified device.
@@ -476,7 +513,8 @@ def load_spatial_data_from_dir(
             pass
         else:
             warnings.warn(
-                "\nNames of loaded maps do not match, assuming they correspond."
+                "\nNames of loaded maps do not match, assuming they correspond.",
+                stacklevel=2,
             )
             warnings.filterwarnings(
                 "ignore",

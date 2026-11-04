@@ -29,7 +29,7 @@ class PAConnectivity:
     which ranges from ECA_0 (initial protection) to sum_i w_i (all units connected).
 
     Args:
-        coords: (rows, cols) grid indices of the valid cells, e.g. SpatialData._coords.
+        coords: (rows, cols) grid indices of the valid cells, e.g. SpatialData.coords.
         units: Unit id per cell, shape (n_cells,): 0 = not part of a unit, k > 0 = unit k
             (e.g. connected components of the existing protected areas).
         resistance: Cost of crossing each unprotected cell, shape (n_cells,), > 0.
@@ -79,7 +79,8 @@ class PAConnectivity:
         self._build_graph(coords)
 
         self._cache_key: np.ndarray | None = None
-        self._dist = self._gaps = None
+        self._dist: np.ndarray | None = None
+        self._gaps: np.ndarray | None = None
         self._n_feature_calls = 0
         self._feature_cache: np.ndarray | None = None
         self._feature_protection: np.ndarray | None = None
@@ -131,11 +132,13 @@ class PAConnectivity:
     def gaps(self, protected: np.ndarray | torch.Tensor) -> np.ndarray:
         """Pairwise least-cost gaps between units, shape (n_units, n_units)."""
         self._update(self._as_bool(protected))
+        assert self._gaps is not None  # set by _update
         return self._gaps.copy()
 
     def eca(self, protected: np.ndarray | torch.Tensor) -> float:
         """Equivalent Connected Area under the given protection."""
         self._update(self._as_bool(protected))
+        assert self._gaps is not None  # set by _update
         p = np.exp(-self._gaps / self.alpha)
         return float(np.sqrt(self._w @ p @ self._w))
 

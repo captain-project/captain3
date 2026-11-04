@@ -86,7 +86,7 @@ def evaluate(plans: dict[str, np.ndarray]) -> pd.DataFrame:
     no_edge = adv.create_episode_runner()
     adv.EDGE_FACTOR = 0.9
 
-    rows, cols = (np.asarray(c) for c in with_edge.env.sdms._coords)
+    rows, cols = (np.asarray(c) for c in with_edge.env.sdms.coords)
     results = []
     for run, plan in plans.items():
         values = plan[rows, cols]
@@ -96,7 +96,7 @@ def evaluate(plans: dict[str, np.ndarray]) -> pd.DataFrame:
             env = episode.env
             env.reset()
             env.update_protection_matrix(new_cells)
-            terms = {t.name: t for t in episode.rewards._reward_obj_list}
+            terms = {t.name: t for t in episode.rewards.terms}
             cost_share = []  # share of the total cost protected, at each step
             for _ in range(adv.N_TIME_STEPS):
                 env.step()

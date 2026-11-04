@@ -115,6 +115,73 @@ reward follows the changing weights: compare the per-term columns (`r_<term>`) a
 epochs instead. See `examples/train_policy_weight_schedule.py` and
 `examples/train_policy_advanced.py`.
 
+## How long to train
+
+[`scripts/convergence_study.py`](../scripts/convergence_study.py) trained two setups on the
+data of the [toy-example tutorial](../tutorials/toy_example/README.md) (30 species, about
+58,000 cells, 10% of them protected) for 100 epochs, with three seeds each, 6 perturbations
+and 4 CPU workers (about 15 minutes per run on a laptop):
+
+- **Global agent** ([`examples/train_policy.py`](../examples/train_policy.py)):
+  extinction-risk and cost terms.
+- **Advanced setup** ([`examples/train_policy_advanced.py`](../examples/train_policy_advanced.py)):
+  edge effects, protected population, connectivity, cost, and the worst-served species,
+  whose weight was annealed from 100x to 1x over the first 50 epochs.
+
+The figures show each reward term summed over the 50 time steps of an episode, before
+weights and calibration (line: mean of the three seeds' running averages; band: their
+range). The tables give the mean reward of all perturbations in early, middle and late
+epochs.
+
+![Global agent: reward terms over 100 epochs](images/convergence_global.png)
+
+| Term | epochs 0-9 | epochs 40-49 | epochs 90-99 |
+|---|---|---|---|
+| extinction_risk | -1.04 | -0.87 | -0.87 |
+| cost | -9.67 | -0.69 | -0.55 |
+
+The global agent covered 90% of its total improvement by epoch 23 (extinction risk) and
+epoch 28 (cost), and 95% by epoch 37. The three seeds ended within about 0.1 of each other.
+
+![Advanced setup: reward terms over 100 epochs](images/convergence_advanced.png)
+
+| Term | epochs 0-9 | epochs 40-49 | epochs 90-99 |
+|---|---|---|---|
+| protected_population | 5.48 | 7.01 | 10.85 |
+| connectivity | 18.04 | 33.32 | 43.01 |
+| species_worst | 1.39 | 0.89 | 1.18 |
+| cost | -13.70 | -7.48 | -4.83 |
+
+In the advanced setup, the protected population stalled around 6-7 while the worst-served
+term had a large weight (shaded). It rose again once that weight came down, and the
+protected population, connectivity and cost covered 90% of their total improvement between
+epochs 71 and 80, 20-30 epochs after the schedule ended. The
+[advanced example](../tutorials/advanced_example/README.md)'s single run of 40 epochs, with
+a 20-epoch schedule, ended at similar values (protected population 10.9, connectivity 39,
+cost -4.9 over its last 10 epochs), so the longer schedule delayed the improvement rather
+than adding to it. Seeds ended further apart than for the global agent, most of all in
+connectivity (35 to 48 over the last 10 epochs).
+
+As a rule of thumb:
+
+- Without a weight schedule, on a problem the size of the toy data, train for about 40
+  epochs. The 20 epochs of `train_policy.py` show training at work but stop before it
+  levels off.
+- With a weight schedule, train for the length of the schedule plus 30-40 epochs.
+- Larger problems (more species, cells or reward terms) need more. Watch the per-term
+  columns (`r_<term>`) of `training_log.tsv` and stop once their running averages have
+  been flat for 10-20 epochs; a [checkpoint](#checkpoints) lets you extend a run that
+  stopped too early.
+- Before comparing two settings, train each with two or three seeds, and treat
+  differences smaller than the spread between seeds as noise.
+
+To repeat the study (about 1.5 hours; finished runs are skipped, `--plot` only redraws
+the figures):
+
+```bash
+uv run python scripts/convergence_study.py
+```
+
 ## Static single-step episodes
 
 When habitat suitability, disturbance and costs are treated as fixed, a plan can be

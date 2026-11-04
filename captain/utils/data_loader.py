@@ -1,4 +1,5 @@
 import glob
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -7,6 +8,8 @@ import numpy as np
 import pandas as pd
 import rasterio
 import rioxarray as rxr
+
+logger = logging.getLogger(__name__)
 
 
 def load_map(
@@ -19,21 +22,23 @@ def load_map(
     extension = os.path.splitext(filename)[1]
 
     if extension == ".tif":
-        warnings.filterwarnings(
-            "ignore", category=rasterio.errors.NotGeoreferencedWarning
-        )
-        warnings.filterwarnings(
-            "ignore",
-            message="angle from rectified to skew grid parameter lost in conversion to CF",
-        )
-
-        data = rxr.open_rasterio(filename).to_numpy()
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", category=rasterio.errors.NotGeoreferencedWarning
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message="angle from rectified to skew grid parameter lost in conversion to CF",
+            )
+            raster = rxr.open_rasterio(filename)
+        if isinstance(raster, list):
+            raise ValueError(f"{filename} contains several subdatasets; expected one raster")
+        data = raster.to_numpy()
         if data.shape[0] > 1 and data.ndim == 3:
-            # data = data[0]
-            print(f"{data.shape[0]} channels detected in file {filename}")
+            logger.info("%d channels detected in file %s", data.shape[0], filename)
             if select_channel is not None:
                 data = data[select_channel]
-                print(f"Selecting channel {select_channel}")
+                logger.info("Selecting channel %s", select_channel)
         name = os.path.basename(filename).split(".tif")[0]
     elif extension == ".npy":
         data = np.load(filename)
@@ -71,11 +76,6 @@ def load_maps_from_dir(
 
     return data, np.array(names)
 
-
-import warnings
-
-import numpy as np
-import pandas as pd
 
 
 def load_trait_table(

@@ -18,7 +18,7 @@ from scipy import sparse as sp
 from captain.data.extinction_risk import ExtinctionRisk
 from captain.data.spatial_data import SpatialData
 from captain.utils import grid_utils
-from captain.utils.grid_utils import DistanceFromTarget, scipy_sparse_to_torch
+from captain.utils.grid_utils import scipy_sparse_to_torch
 
 if TYPE_CHECKING:
     pass
@@ -56,7 +56,6 @@ class BioEnv:
             cached_dispersal_matrix: sp.csr_matrix | torch.Tensor | None = None,
             species_traits: pd.DataFrame | None = None,
             action_mask: SpatialData | None = None,
-            distance_calculator: DistanceFromTarget | None = None,
             edge_factor: float = 0.0,
             edge_radius: int = 1,
             edge_decay: float | None = None,
@@ -108,7 +107,6 @@ class BioEnv:
             self.action_mask = action_mask.to(self.device)
         else:
             self.action_mask = None
-        self.distance_calculator = distance_calculator
 
         # Dimensions
         self.n_species = sdms.shape[0]
@@ -171,7 +169,7 @@ class BioEnv:
                 self._use_scipy_sparse = False
         elif self._is_scalar_dispersal:
             self._scipy_dist = grid_utils.dispersal_distances_threshold_coords(
-                self._lambda_0, self.sdms._coords, threshold=self._dispersal_cutoff
+                self._lambda_0, self.sdms.coords, threshold=self._dispersal_cutoff
             )
             if not self._use_scipy_sparse:
                 self._cached_dist = scipy_sparse_to_torch(self._scipy_dist, self.device)
@@ -196,7 +194,7 @@ class BioEnv:
         if self._edge_factor > 0:
             # values @ matrix convention: (d, x) @ (x, x) -> (d, x)
             self._scipy_edge = grid_utils.compute_convolution_matrix(
-                self.sdms._coords, radius=edge_radius, include_self=False, decay=edge_decay
+                self.sdms.coords, radius=edge_radius, include_self=False, decay=edge_decay
             ).tocsr()
             if not self._use_scipy_sparse:
                 # A (row = neighbour weights of a cell) and its transpose for edge_buffer
@@ -226,7 +224,7 @@ class BioEnv:
 
         # Compute base matrix with lambda=1
         scipy_base = grid_utils.dispersal_distances_threshold_coords(
-            1.0, self.sdms._coords, threshold=self._dispersal_cutoff
+            1.0, self.sdms.coords, threshold=self._dispersal_cutoff
         ).tocsr()
 
         # Compute inverse lambdas
@@ -486,21 +484,6 @@ class BioEnv:
             init_protected_pop=self.protected_population,
         )
 
-    def get_distance_from_target(
-            self, focal_cells: torch.Tensor | None = None, normalize: bool = True
-    ) -> torch.Tensor | None:
-        """Calculate distance from target cells (boolean), shape = self.sdms.data.shape"""
-        # By default returns distance from action mask
-        if self.distance_calculator is not None:
-            if focal_cells is None:
-                focal_cells = self.action_mask.data == 0
-            dist_to_target = self.distance_calculator.calculate_min_distances(
-                focal_cells, normalize=normalize
-            )
-        else:
-            dist_to_target = None
-        return dist_to_target
-
     @property
     def h(self) -> torch.Tensor:
         """Current population matrix of shape (n_species, n_cells)."""
@@ -515,24 +498,24 @@ class BioEnv:
         """
         return grid_utils.reconstruct_grid(
             self._h.cpu().numpy(),
-            self.sdms._coords,
+            self.sdms.coords,
             self.sdms.shape[1:],
         )
 
     @property
     def protected_cells_mask(self) -> torch.Tensor:
         """Boolean mask of protected cells, shape (n_cells,)."""
-        return self.protection_matrix._nonzero_cells_mask
+        return self.protection_matrix.nonzero_cells_mask
 
     @property
     def no_action_mask(self) -> torch.Tensor:
         """Boolean mask where no (further) actions can be made, shape (n_cells,)."""
         if self.action_mask is None:
-            return self.protection_matrix._nonzero_cells_mask
+            return self.protection_matrix.nonzero_cells_mask
         else:
             return torch.logical_or(
-                self.protection_matrix._nonzero_cells_mask,
-                self.action_mask._nonzero_cells_mask,
+                self.protection_matrix.nonzero_cells_mask,
+                self.action_mask.nonzero_cells_mask,
             )
 
     @property
@@ -565,6 +548,64 @@ class BioEnv:
         """Number of cells in protected areas per species, shape (n_species,)."""
         # (s, x) @ (x,) -> (s,)
         return (self._h > 0).float() @ self.protected_cells_mask.float()
+
+    @property
+    def species_k(self) -> torch.Tensor:
+        """Carrying capacity of each species at full habitat suitability, shape (n_species,)."""
+        return self._species_k
+
+    @property
+    def growth_rates(self) -> torch.Tensor:
+        """Growth rate of each species, shape (n_species,)."""
+        return self._growth_rates
+
+    @property
+    def sensitivity_rates(self) -> torch.Tensor:
+        """Sensitivity of each species to each disturbance layer, shape (n_species, n_layers)."""
+        return self._species_sensitivity
+
+    @property
+    def carrying_capacity(self) -> torch.Tensor:
+        """Current carrying capacity, shape (n_species, n_cells)."""
+        return self._current_carrying_capacity
+
+    @property
+    def species_traits(self) -> pd.DataFrame | None:
+        """Species trait table passed to the constructor (None if not given)."""
+        return self._species_traits_table
+
+    def get_trait(self, trait: str | int) -> torch.Tensor:
+        """Values of a numeric species trait, shape (n_species,).
+
+        Args:
+            trait: Trait (column) name in the species trait table, or its index among the
+                numeric columns (see trait_map).
+
+        Raises:
+            KeyError: If no trait table was given or the trait is not a numeric column.
+        """
+        if self._species_traits is None or self.trait_map is None:
+            raise KeyError("No species trait table: pass species_traits to BioEnv")
+        if isinstance(trait, str):
+            if trait not in self.trait_map:
+                raise KeyError(f"No numeric trait {trait!r}; available: {list(self.trait_map)}")
+            trait = self.trait_map[trait]
+        return self._species_traits[:, trait]
+
+    @property
+    def step_num(self) -> int:
+        """Time steps taken since the last reset."""
+        return self._step_num
+
+    @property
+    def env_step_num(self) -> int:
+        """Population-dynamics steps (dispersal and growth) since the last reset."""
+        return self._env_step_num
+
+    @property
+    def edge_factor(self) -> float:
+        """Strength of the edge effect (0 = no edge effect)."""
+        return self._edge_factor
 
     def to(self, device: torch.device | str) -> BioEnv:
         """Move environment to specified device.

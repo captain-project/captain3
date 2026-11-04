@@ -232,7 +232,7 @@ class ExtinctionRisk:
     ) -> dict[str, torch.Tensor]:
         """Count species in each risk class and return dictionary."""
         c = self.species_per_class(risk_labels=risk_labels, normalize=normalize)
-        return {label: val.item() for label, val in zip(self._class_names, c)}
+        return {label: val.item() for label, val in zip(self._class_names, c, strict=True)}
 
     def to(self, device: torch.device | str) -> ExtinctionRisk:
         """Move all tensors to specified device.
@@ -258,6 +258,16 @@ class ExtinctionRisk:
         if self._init_protected_range is not None:
             self._init_protected_range = self._init_protected_range.to(self.device)
         return self
+
+    @property
+    def n_classes(self) -> int:
+        """Number of extinction-risk classes."""
+        return self._n_classes
+
+    @property
+    def init_status_counts(self) -> torch.Tensor:
+        """Number of species in each class at the start, shape (n_classes,)."""
+        return self._init_status_counts
 
     @property
     def init_status(self) -> torch.Tensor:
