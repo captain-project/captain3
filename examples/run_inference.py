@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import rasterio
 
 import captain as cn
 
@@ -310,6 +311,7 @@ ep = cn.EpisodeRunner(
     recorder=xai_recorder,
 )
 
+initially_protected = np.nan_to_num(np.array(protection.reconstruct_grid[0])) > 0
 res, _ = ep.run_episode(np.load(TRAINED_MODEL))
 
 cn.plots.plot_grid(
@@ -339,6 +341,24 @@ cn.plots.plot_grid(
     dpi=300,
     figsize=(6, 8),
     cmap="viridis",
+)
+
+# export the plan as KMZ polygons for Google Earth / QGIS (1 = protected at the
+# start, 2 = protected by the policy), georeferenced like the species distribution maps
+final_protection = np.nan_to_num(np.array(env.protection_matrix.reconstruct_grid[0])) > 0
+plan = np.where(final_protection, np.where(initially_protected, 1, 2), 0)
+with rasterio.open(sorted((DATA_DIR / PRESENT_SDMS_DIR).glob("*.tif"))[0]) as src:
+    plan_transform, plan_crs = src.transform, src.crs
+cn.export.raster_to_kml(
+    plan,
+    plan_transform,
+    plan_crs,
+    RES_DIR / "protection_plan.kmz",
+    [
+        cn.export.KmlClass(1, "Initially protected", "#52514e", opacity=0.5),
+        cn.export.KmlClass(2, "New protection", "#1baf7a"),
+    ],
+    name="CAPTAIN protection plan",
 )
 
 # plot present extinction risks

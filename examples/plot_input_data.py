@@ -23,8 +23,9 @@ SEED = None
 # Configuration
 # =============================================================================
 
-# Data paths - UPDATE THESE to point to your data
-DATA_DIR = Path("/path/to/your/captain3data")  # <-- Change this!
+# Data paths - the repo's own toy dataset, resolved relative to this script
+# (change DATA_DIR if your data are elsewhere)
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 PRESENT_SDMS_DIR = "present_sdms"
 FUTURE_SDMS_DIR = "future_sdms"
@@ -43,10 +44,11 @@ N_TIME_STEPS = 50
 MIN_HABITAT_SUITABILITY = 0.05  # can be an array (per-species values)
 
 # Check data directory
-if not DATA_DIR.exists() or str(DATA_DIR) == "/path/to/your/data":
-    print("\nERROR: Please update DATA_DIR in this script to point to your data.")
-    print("       See the example data repository for the expected format.")
-    raise FileNotFoundError
+if not DATA_DIR.exists():
+    raise FileNotFoundError(
+        f"Data folder {DATA_DIR} not found: update DATA_DIR in this script to point to "
+        "your data (see the example data repository for the expected format)."
+    )
 
 # Output
 os.makedirs(DATA_DIR / results_dir, exist_ok=True)
@@ -73,7 +75,7 @@ sdm = cn.load_spatial_data_from_dir(
 print("Plotting example species...")
 # species index (list stored in sdm.names)
 species_name = "Aristaeomorpha_ENS"
-species_i = sdm.names.index(species_name)
+species_i = sdm.names.index(species_name) if species_name in sdm.names else 0
 cn.data.spatial_data.plot_data_evolution(
     sdm,
     n_steps=N_TIME_STEPS,
@@ -90,7 +92,7 @@ cn.plots.plot_grid(
     title="Species richness (present habitat suitability)",
     outfile=RES_DIR / "Species_richness_present",
     vmin=0,
-    vmax=175,
+    vmax=len(sdm.names),
     cmap="Blues",
 )
 
@@ -100,7 +102,7 @@ cn.plots.plot_grid(
     title="Species richness (future habitat suitability)",
     outfile=RES_DIR / "Species_richness_future",
     vmin=0,
-    vmax=175,
+    vmax=len(sdm.names),
     cmap="Blues",
 )
 
@@ -174,6 +176,8 @@ cn.plots.plot_extinction_risk(
 
 # Implement random disturbance
 d, n = cn.data_loader.load_map(DATA_DIR / DISTURBANCE_FILE)
+if d.ndim == 3:  # single-band rasters keep their band axis
+    d = d[0]
 coherence = 8
 padded_height = (d.shape[0] // coherence + 1) * coherence
 padded_width = (d.shape[1] // coherence + 1) * coherence
@@ -222,4 +226,4 @@ cn.data.spatial_data.plot_data_evolution(
 
 
 print("Done.")
-print("Plots seved in:", RES_DIR)
+print("Plots saved in:", RES_DIR)

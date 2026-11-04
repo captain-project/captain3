@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """Generate a synthetic region raster for the toy dataset.
 
-The toy dataset (unlike the Swiss example) has no canton/region-equivalent
-raster, but `train_policy.py` / `run_inference.py` need one to demonstrate
-regional multi-agent training (`RegionalPolicyNetwork` + `RegionalBudgetManager`).
+The toy dataset has no administrative regions, but `train_policy.py` /
+`run_inference.py` need a region raster to demonstrate regional multi-agent
+training (`RegionalPolicyNetwork` + `RegionalBudgetManager`).
 
 This script partitions the toy grid into a 3x3 grid of rectangular regions,
 writing:
-- data/env_layers/regions.tif   (region-ID raster, georeferenced like cost.tif)
+- data/env_layers/regions.tif   (region-ID raster, georeferenced like the SDMs)
 - data/env_layers/regions_tbl.csv (REGION_ID -> NAME lookup table)
 
 Run once as a data-prep step; the outputs are consumed by the other scripts.
@@ -21,7 +21,8 @@ import rasterio
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-REFERENCE_TIF = DATA_DIR / "env_layers" / "cost.tif"
+# georeference (CRS, transform, shape) taken from the species distribution maps
+REFERENCE_TIF = sorted((DATA_DIR / "present_sdms").glob("*.tif"))[0]
 MASK_FILE = DATA_DIR / "env_layers" / "area_mask.npy"
 OUTPUT_TIF = DATA_DIR / "env_layers" / "regions.tif"
 OUTPUT_CSV = DATA_DIR / "env_layers" / "regions_tbl.csv"

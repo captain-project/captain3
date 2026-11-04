@@ -74,6 +74,15 @@ N_PARALLEL_WORKERS = 4  # Number of CPUs (if not CUDA)
 N_TIME_STEPS = 50  # Time duration of each episode
 TARGET_PROTECTED_CELLS_FRACTION = 0.10  # Fraction of valid cells to be protected
 CELLS_PER_STEP = 1000  # number of new cells protected at each time step
+# How the ES trainer turns perturbation rewards into update weights:
+#   "zscore" = standardized within each epoch: step size set by the learning rate only
+#              (the trainer's default)
+#   "rank"   = centred ranks (also robust to outlier episodes)
+#   None     = reward minus a running baseline: the step size grows with the reward scale
+#              (e.g. ~30x larger after reward calibration), which can make early epochs
+#              unstable
+# The relative reward weights / calibration still decide which perturbations are better.
+ADVANTAGE_NORMALIZATION = "zscore"
 
 # Species parameters
 AVG_CARRYING_CAPACITY = 100  # 'individuals' per cells (* empirical relative abundance)
@@ -104,8 +113,6 @@ PLOT_DATA = False
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 if PLOT_FEATURES:
-    # RESULTS_DIR_PLOTS = RESULTS_DIR / "data_plots"
-    # os.makedirs(RESULTS_DIR_PLOTS, exist_ok=True)
     RESULTS_DIR_FEATURE_PLOTS = RESULTS_DIR / "feature_plots"
     os.makedirs(RESULTS_DIR_FEATURE_PLOTS, exist_ok=True)
 
@@ -380,6 +387,7 @@ def main():
         epsilon_reward=0.75,
         n_perturbations=N_PERTURBATIONS,
         seed=SEED,
+        advantage_normalization=ADVANTAGE_NORMALIZATION,
     )
 
     # Load reward calibration. This is always computed once against the
