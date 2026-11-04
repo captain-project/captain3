@@ -6,6 +6,9 @@ explainability analyses (e.g. feature attribution, partial dependence, surrogate
 
 Recording is off by default and has no cost during training.
 
+The [last section](#exporting-plans-for-google-earth) shows how to export a protection plan
+as KMZ polygons for Google Earth.
+
 ## Usage
 
 ```python
@@ -147,3 +150,34 @@ rank_map = grid_utils.reconstruct_grid(step["rank"][None], coords, tuple(cells["
 When using `CellNN`, scores are computed independently per cell from its feature vector, so
 `features_input` (transposed to `(N, F)`) and `scores` form a complete input/output dataset for
 the policy.
+
+## Exporting plans for Google Earth
+
+`cn.export` writes a classified grid (e.g. 1 = initially protected, 2 = protected by the
+policy) as KML/KMZ polygons that open in Google Earth, QGIS or Google My Maps. Neighbouring
+cells of a class are merged into polygons (holes kept), reprojected to WGS84, and each class
+gets its own folder and colour. `raster_to_kml` takes an in-memory array plus the
+georeference of the grid, e.g. that of the species distribution maps:
+
+```python
+import numpy as np
+import rasterio
+import captain as cn
+
+protected = np.nan_to_num(env.protection_matrix.reconstruct_grid[0]) > 0
+plan = np.where(protected, np.where(initially_protected, 1, 2), 0)
+
+with rasterio.open("data/present_sdms/Acanella_ENS.tif") as src:   # any layer on this grid
+    transform, crs = src.transform, src.crs
+
+cn.export.raster_to_kml(plan, transform, crs, "results/protection_plan.kmz", [
+    cn.export.KmlClass(1, "Initially protected", "#52514e", opacity=0.5),
+    cn.export.KmlClass(2, "New protection", "#1baf7a"),
+], name="CAPTAIN protection plan")
+```
+
+`geotiff_to_kml(tif_file, outfile, classes)` does the same for a plan saved as a GeoTIFF,
+reading the georeference from the file. A `.kmz` output is the zipped KML; any other suffix
+writes plain KML. The georeference must include a CRS: a layer without one raises an error.
+`examples/run_inference.py` and `examples/train_policy_advanced.py` both export their plans
+this way.

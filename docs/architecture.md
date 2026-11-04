@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document describes the high-level architecture of CAPTAIN-NG.
+This document describes the high-level architecture of CAPTAIN.
 
 ## System Design
 

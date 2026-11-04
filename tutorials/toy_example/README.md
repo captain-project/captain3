@@ -1,7 +1,7 @@
 # Toy Example Walkthrough
 
 This tutorial walks through training and evaluating a conservation policy with
-CAPTAIN-NG using a small toy dataset (30 species over an 800x500 grid, ~58k
+CAPTAIN using a small toy dataset (30 species over an 800x500 grid, ~58k
 valid cells). It covers:
 
 - what `train_policy.py` and `run_inference.py` do, end to end
@@ -46,7 +46,10 @@ and edit the constants directly before running.
 |---|---|
 | [`calibrate_rewards.py`](../../examples/calibrate_rewards.py) | One-time step: calibrates reward-term scales against the global agent and saves `reward_calibration.json`. |
 | [`train_policy.py`](../../examples/train_policy.py) | Trains a policy with Evolution Strategies (ES), loading the saved reward calibration. |
-| [`run_inference.py`](../../examples/run_inference.py) | Loads a trained policy and runs one episode, producing protection maps and extinction-risk plots, and optionally saves features, policy scores and cell rankings for xAI analyses. |
+| [`run_inference.py`](../../examples/run_inference.py) | Loads a trained policy and runs one episode, producing protection maps, extinction-risk plots and a KMZ file for Google Earth, and optionally saves features, policy scores and cell rankings for xAI analyses. |
+| [`train_policy_weight_schedule.py`](../../examples/train_policy_weight_schedule.py) | Optional: trains with protected population + worst-served species rewards, annealing the weight of the worst-served term (no calibration needed). See the [rewards tutorial](../rewards/README.md#reward-weight-schedules). |
+| [`train_policy_advanced.py`](../../examples/train_policy_advanced.py) | Optional: edge effects, existing protected areas, connectivity and a worst-served species reward in one run. See the [advanced example](../advanced_example/README.md). |
+| [`static_prioritization.py`](../../examples/static_prioritization.py) | Optional: a one-shot plan within a single time step, without population dynamics. See the [advanced example](../advanced_example/README.md#4-static-prioritization). |
 
 The downloaded `data/` already includes everything these scripts need,
 including a region raster (`env_layers/regions.tif`) and lookup table
@@ -111,10 +114,21 @@ global/regional/single-region runs (see the example below).
    (`NoRewards()`), recording which cells get protected over time.
 3. Plots the final protection matrix, protection-through-time, and
    extinction-risk bar charts before/after protection.
-4. Re-runs the same episode with an unlimited budget disabled
-   (`NoBudgetManager()`) as a "no protection" baseline for comparison — this
-   step is skipped in regional (`"All"`) mode, since it isn't compatible with
-   the multi-agent policy.
+4. Exports the plan as `protection_plan.kmz` (see below).
+5. Re-runs the same episode with the budget disabled (`NoBudgetManager()`) as
+   a "no protection" baseline for comparison — this step is skipped with
+   regional agents (`USE_REGIONAL_AGENTS = True`), since it isn't compatible
+   with the multi-agent policy.
+
+#### Viewing the plan in Google Earth
+
+`protection_plan.kmz` (in `inference/`) contains the protected cells as polygons, with
+neighbouring cells merged: one folder for cells protected at the start (none in the toy
+example) and one for the cells the policy protected. Open it in Google Earth (or QGIS,
+Google My Maps) to see the plan on satellite imagery. The script builds it with
+`cn.export.raster_to_kml`, using the georeference (CRS and transform) of the species
+distribution maps; for a plan saved as a GeoTIFF, `cn.export.geotiff_to_kml` does the
+same (see [`docs/inference.md`](../../docs/inference.md#exporting-plans-for-google-earth)).
 
 #### Saving features and rankings for xAI
 
@@ -179,8 +193,8 @@ demonstrate multi-region training:
 The two modes are trained identically otherwise (same reward, same shared
 reward calibration from `calibrate_rewards.py`) — only how actions get
 selected and budgeted differs. `train_policy.py` names its output folder
-after the mode (`global_w1.0_w1.0_p0.0425/`, `regions_w1.0_w1.0_p0.0425/`, or
-`<region_name>_w1.0_w1.0_p0.0425/`), and `run_inference.py` looks for the
+after the mode (`global_w1.0_w1.0_p0.1/`, `regions_w1.0_w1.0_p0.1/`, or
+`<region_name>_w1.0_w1.0_p0.1/`), and `run_inference.py` looks for the
 model in the matching folder — so make sure `USE_REGIONAL_AGENTS`/`REGION_ID`
 are set the same way in both scripts.
 
@@ -220,11 +234,14 @@ that the pipeline runs end-to-end.
 ![Regional agent reward over training](images/reward_regional.png)
 
 Both runs load the same reward calibration (see `calibrate_rewards.py`
-above), so these reward values are directly comparable. Both climb steadily
-over the 20 epochs: the global agent from about -6.6 to -2.9, the regional
-agent from about -6.0 to -3.0 — similar overall improvement, though the
-regional agent's curve is noisier along the way (it's coordinating 9
-sub-policies at once rather than one).
+above), so these reward values are directly comparable. The dots are the
+average reward of each epoch's perturbations, the line a running average.
+Both improve over the first half of training: the running average of the
+global agent goes from about -6.1 to -4.3 and that of the regional agent from
+about -5.5 to -4.2. Single epochs are noisy (each episode simulates 50 time steps
+of population dynamics under climate change), and the global run has a few
+worse epochs towards the end, so 20 epochs with 6 perturbations is enough to
+see training work but not to converge.
 
 ### Priority maps: global vs. regional agent
 
@@ -253,12 +270,11 @@ each need their own guaranteed share of protected land.
 Species are grouped into 5 IUCN-like risk categories (LC → CR), simulated
 forward under each policy. With no protection at all, species end up at
 17 LC / 4 NT / 3 VU / 3 EN / 3 CR. Both trained policies improve on that
-substantially: the global agent reaches 19 LC / 6 NT / 1 VU / 2 EN / 2 CR,
-and the regional agent does slightly better still, at 20 LC / 5 NT / 1 VU /
-2 EN / 2 CR — spreading the same overall protection budget across all 9
-regions (rather than letting the global agent concentrate it, see the
-priority maps above) keeps one more species out of the Near Threatened
-category here. This is a short, lightly-trained toy run, so treat the exact
+substantially: the global agent reaches 22 LC / 3 NT / 2 VU / 1 EN / 2 CR,
+and the regional agent 22 LC / 4 NT / 1 VU / 1 EN / 2 CR — spreading the
+same overall protection budget across all 9 regions (rather than letting the
+global agent concentrate it, see the priority maps above) moves one more
+species from Vulnerable to Near Threatened here. This is a short, lightly-trained toy run, so treat the exact
 numbers as illustrative rather than a general claim that regional agents
 outperform global ones — longer training (more epochs/perturbations) is
 where you'd want to draw real conclusions.
@@ -271,3 +287,8 @@ where you'd want to draw real conclusions.
 - Use the saved xAI data (`inference/xai/`) to see which features drive the
   policy's ranking, e.g. with a surrogate model of `features_input` against
   `scores`, or of top vs. random cells (`sample_is_top`).
+- Add a term that is flat for an untrained policy (e.g. `CalcRewardWorstSpecies`) and
+  anneal its weight with a `RewardWeightSchedule`
+  (`examples/train_policy_weight_schedule.py`).
+- Add edge effects, existing protected areas and connectivity, or optimize a static
+  one-shot plan: see the [advanced example](../advanced_example/README.md).

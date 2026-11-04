@@ -21,7 +21,27 @@ CAPTAIN is a reinforcement learning system for optimizing conservation and resto
 
 🤖 **Decentralized Regional Agents:** Features regional agents designed to optimize spatially-distributed conservation strategies.
 
-📘 **Hands-on Tutorial:** A step-by-step [toy-example walkthrough](https://github.com/captain-project/captain3preview/blob/main/tutorials/toy_example/README.md) covering data setup, reward calibration, training, and global vs. regional agents on a small toy dataset.
+🧱 **Edge Effects:** Disturbance can spill over from unprotected land into the borders of protected areas, so that compact reserves support larger populations than scattered cells.
+
+🔗 **Connectivity:** Reward and policy features that link protected areas, based on the equivalent connected area of the reserve network and least-cost paths between reserves.
+
+⚖️ **Species-level Rewards:** Reward the protected share of each species' population (weighted by threat status and range size), the worst-served species, or the overlap with any spatial layer, and change the reward weights during training with weight schedules. See the [rewards tutorial](https://github.com/captain-project/captain3preview/blob/main/tutorials/rewards/README.md).
+
+📍 **Static Prioritization:** One-shot protection plans within a single time step, without population dynamics, for fast spatial prioritization.
+
+🌍 **Google Earth Export:** Export protection plans as KMZ polygons to view them on satellite imagery in Google Earth or QGIS.
+
+📘 **Hands-on Tutorials:** A step-by-step [toy-example walkthrough](https://github.com/captain-project/captain3preview/blob/main/tutorials/toy_example/README.md) covering data setup, reward calibration, training, and global vs. regional agents on a small toy dataset, and an [advanced example](https://github.com/captain-project/captain3preview/blob/main/tutorials/advanced_example/README.md) with edge effects, existing protected areas, connectivity and static prioritization. The [training guide](https://github.com/captain-project/captain3preview/blob/main/docs/training.md) explains the optimizer and its settings.
+
+### What's new (November 2026)
+
+New features: edge effects, connectivity, new reward terms and reward weight schedules, static single-step episodes and KMZ export (see above), with three new example scripts: [train_policy_advanced.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy_advanced.py), [static_prioritization.py](https://github.com/captain-project/captain3preview/blob/main/examples/static_prioritization.py) and [train_policy_weight_schedule.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy_weight_schedule.py).
+
+Changes that affect existing runs:
+- The evolution strategies trainer now standardizes the rewards of each epoch's perturbations before the update (`advantage_normalization="zscore"`), so the step size no longer grows with the reward scale. Pass `advantage_normalization=None` to `EvolStrategiesTrainer` for the previous behaviour.
+- `LearningScheduler` keeps sigma at or above `min_sigma` also while adapting it to the similarity of the perturbations' plans.
+- Budget managers round the number of cells protected per decision up, so the full protection target is reached.
+- Species in the trait table that have no species distribution map are dropped with a warning instead of raising an error.
 
 
 ### ⚠️ Notice
@@ -84,8 +104,12 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 Working example scripts are in the [examples folder](https://github.com/captain-project/captain3preview/blob/main/examples)
 - [plot\_input\_data.py](https://github.com/captain-project/captain3preview/blob/main/examples/plot_input_data.py) - Visualize spatial and time-varying input data
+- [calibrate_rewards.py](https://github.com/captain-project/captain3preview/blob/main/examples/calibrate_rewards.py) - Calibrate the scales of the reward terms (run once before training)
 - [train_policy.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy.py) - Full training loop with real data
-- [run_inference.py](https://github.com/captain-project/captain3preview/blob/main/examples/run_inference.py) - Load a trained model and perform optimization
+- [run_inference.py](https://github.com/captain-project/captain3preview/blob/main/examples/run_inference.py) - Load a trained model and perform optimization, with maps, extinction-risk plots and a KMZ file for Google Earth
+- [train_policy_advanced.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy_advanced.py) - Edge effects, existing protected areas, connectivity and a worst-served species reward
+- [static_prioritization.py](https://github.com/captain-project/captain3preview/blob/main/examples/static_prioritization.py) - One-shot plan within a single time step
+- [train_policy_weight_schedule.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy_weight_schedule.py) - Anneal the weight of a reward term during training
 
 Example data can be downloaded [here](https://polybox.ethz.ch/index.php/s/WKdbHHGj3ayL9w9). 
 A pre-trained model is available [here](https://polybox.ethz.ch/index.php/s/wZ5AMXPdzboZSm2). 
@@ -93,7 +117,9 @@ A pre-trained model is available [here](https://polybox.ethz.ch/index.php/s/wZ5A
 For a quicker, self-contained walkthrough using a small toy dataset, see the
 [toy-example tutorial](https://github.com/captain-project/captain3preview/blob/main/tutorials/toy_example/README.md) —
 covers data setup, reward calibration, training, and running inference with
-both a single global agent and coordinated regional agents.
+both a single global agent and coordinated regional agents. The
+[advanced example](https://github.com/captain-project/captain3preview/blob/main/tutorials/advanced_example/README.md) and the
+[rewards tutorial](https://github.com/captain-project/captain3preview/blob/main/tutorials/rewards/README.md) build on it.
 
 <img width="50%" alt="animated_map" src="https://github.com/user-attachments/assets/9ef85156-9a76-4a32-8c29-d5960481a7cb" />
 
@@ -106,8 +132,11 @@ captain3preview/
 │   ├── algorithms/     # Evolution strategies trainer, episode runner
 │   ├── data/           # SpatialData, ExtinctionRisk classes
 │   ├── environment/    # BioEnv simulation engine
-│   └── utils/          # Utilities, data loading
-└── examples/           # Usage examples
+│   └── utils/          # Utilities, data loading, connectivity, KMZ export
+├── docs/               # Training and inference guides
+├── examples/           # Usage examples
+├── scripts/            # Data-preparation and figure scripts for the tutorials
+└── tutorials/          # Toy example, rewards and advanced example tutorials
 ```
 
 ## Citation
