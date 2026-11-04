@@ -106,7 +106,7 @@ Working example scripts are in the [examples folder](https://github.com/captain-
 - [plot\_input\_data.py](https://github.com/captain-project/captain3preview/blob/main/examples/plot_input_data.py) - Visualize spatial and time-varying input data
 - [calibrate_rewards.py](https://github.com/captain-project/captain3preview/blob/main/examples/calibrate_rewards.py) - Calibrate the scales of the reward terms (run once before training)
 - [train_policy.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy.py) - Full training loop with real data
-- [run_inference.py](https://github.com/captain-project/captain3preview/blob/main/examples/run_inference.py) - Load a trained model and perform optimization, with maps, extinction-risk plots and a KMZ file for Google Earth
+- [run_inference.py](https://github.com/captain-project/captain3preview/blob/main/examples/run_inference.py) - Load a trained model and perform optimization, plot the results
 - [train_policy_advanced.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy_advanced.py) - Edge effects, existing protected areas, connectivity and a worst-served species reward
 - [static_prioritization.py](https://github.com/captain-project/captain3preview/blob/main/examples/static_prioritization.py) - One-shot plan within a single time step
 - [train_policy_weight_schedule.py](https://github.com/captain-project/captain3preview/blob/main/examples/train_policy_weight_schedule.py) - Anneal the weight of a reward term during training
